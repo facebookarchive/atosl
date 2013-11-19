@@ -2,11 +2,11 @@ VERSION = 1.0
 
 PREFIX = /usr/local
 
-DWARFINC =
-DWARFLIB =
+DWARFCFLAGS =
+DWARFLDFLAGS =
 
-CFLAGS = -Wall -Werror -O2 -I${DWARFINC} -DATOSL_VERSION=\"${VERSION}\"
-LDFLAGS = -L${DWARFLIB} -ldwarf -liberty
+CFLAGS = -Wall -Werror -O2 ${DWARFCFLAGS} -DATOSL_VERSION=\"${VERSION}\"
+LDFLAGS = ${DWARFLDFLAGS} -ldwarf -liberty
 
 CC = cc
 
