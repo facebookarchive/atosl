@@ -1165,14 +1165,16 @@ int main(int argc, char *argv[]) {
     int found = 0;
     uint32_t magic;
     cpu_subtype_t st = -1;
+    long address;
 
     while ((c = getopt_long(argc, argv, shortopts, longopts, &option_index))
             >= 0) {
         switch (c) {
             case 'l':
-                options.load_address = strtol(optarg, (char **)NULL, 16);
-                if (options.load_address < 0)
+                address = strtol(optarg, (char **)NULL, 16);
+                if (address < 0)
                     fatal("unable to parse load address: `%s'", optarg);
+                options.load_address = address;
                 break;
             case 'o':
                 options.dsym_filename = optarg;

@@ -15,6 +15,27 @@ libdwarf is available for.
 does the heavily lifting of parsing the DWARF debugging data within the
 binaries.
 
+### Install Dependencies on OS X
+
+#### Install Homebrew
+
+```sh
+ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go)"
+```
+
+#### Install Dependencies
+
+```sh
+brew install binutils
+brew install https://gist.github.com/zlandau/7550479/raw/b084adb5506b186b520783bd69f92996cf2dada8/libdwarf.rb
+```
+
+#### Update config.mk.local
+
+```sh
+echo "DWARFLDFLAGS += -L$(dirname $(brew list binutils| grep libiberty.a))" >> config.mk.local
+```
+
 ## Usage
 
 atosl currently supports debug (DSYM) files and DYLIB with debug symbols

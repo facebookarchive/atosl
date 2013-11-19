@@ -1,0 +1,5 @@
+language: c
+before_install:
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq binutils-dev libdwarf-dev
+script: make
