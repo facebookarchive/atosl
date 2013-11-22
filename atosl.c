@@ -55,7 +55,7 @@ static int debug = 0;
 
 static const char *shortopts = "vl:o:A:gh";
 static struct option longopts[] = {
-    {"verbose", no_argument, &debug, 1},
+    {"verbose", no_argument, NULL, 'v'},
     {"load-address", required_argument, NULL, 'l'},
     {"dsym", required_argument, NULL, 'o'},
     {"arch", optional_argument, NULL, 'A'},
