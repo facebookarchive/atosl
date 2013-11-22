@@ -3,6 +3,8 @@
 __atosl__ is a partial replacement for Apple's atos tool for converting
 addresses within a binary file to symbols.
 
+[![Build Status](https://travis-ci.org/facebook/atosl.png?branch=master)](https://travis-ci.org/facebook/atos)
+
 ## Why
 
 The primary benefit of atosl is its ability to run on other platforms.
