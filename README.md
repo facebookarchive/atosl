@@ -27,7 +27,7 @@ ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go)"
 
 ```sh
 brew install binutils
-brew install https://gist.github.com/zlandau/7550479/raw/b084adb5506b186b520783bd69f92996cf2dada8/libdwarf.rb
+brew install https://gist.github.com/zlandau/7550479/raw/f72753f6a59f6a3fadf9a2e2952a9f6846c15a8d/libdwarf.rb
 ```
 
 #### Update config.mk.local
