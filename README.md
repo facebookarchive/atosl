@@ -3,6 +3,8 @@
 __atosl__ is a partial replacement for Apple's atos tool for converting
 addresses within a binary file to symbols.
 
+[![Build Status](https://travis-ci.org/facebook/atosl.png?branch=master)](https://travis-ci.org/facebook/atos)
+
 ## Why
 
 The primary benefit of atosl is its ability to run on other platforms.
@@ -27,13 +29,13 @@ ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go)"
 
 ```sh
 brew install binutils
-brew install https://gist.github.com/zlandau/7550479/raw/b084adb5506b186b520783bd69f92996cf2dada8/libdwarf.rb
+brew install https://gist.github.com/zlandau/7550479/raw/f72753f6a59f6a3fadf9a2e2952a9f6846c15a8d/libdwarf.rb
 ```
 
 #### Update config.mk.local
 
 ```sh
-echo "DWARFLDFLAGS += -L$(dirname $(brew list binutils| grep libiberty.a))" >> config.mk.local
+echo "LDFLAGS += -L$(dirname $(brew list binutils| grep libiberty.a))" >> config.mk.local
 ```
 
 ## Usage
