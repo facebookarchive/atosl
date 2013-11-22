@@ -53,13 +53,14 @@ _dwarf_decode_u_leb128(Dwarf_Small * leb128,
 
 static int debug = 0;
 
-static const char *shortopts = "vl:o:A:gh";
+static const char *shortopts = "vl:o:A:gVh";
 static struct option longopts[] = {
     {"verbose", no_argument, NULL, 'v'},
     {"load-address", required_argument, NULL, 'l'},
     {"dsym", required_argument, NULL, 'o'},
     {"arch", optional_argument, NULL, 'A'},
     {"globals", no_argument, NULL, 'g'},
+    {"version", no_argument, NULL, 'V'},
     {"help", no_argument, NULL, 'h'},
 };
 
@@ -151,6 +152,8 @@ void print_help(void)
             "  -A, --arch=ARCH\t\tspecify architecture\n");
     fprintf(stderr,
             "  -g, --globals\t\t\tlookup symbols using global section\n");
+    fprintf(stderr,
+            "  -V, --version\t\t\tget current version\n");
     fprintf(stderr,
             "  -h, --help\t\t\tthis help\n");
     fprintf(stderr, "\n");
@@ -1196,6 +1199,9 @@ int main(int argc, char *argv[]) {
             case 'g':
                 options.use_globals = 1;
                 break;
+            case 'V':
+                fprintf(stderr, "atosl %s\n", VERSION);
+                exit(EXIT_SUCCESS);
             case '?':
                 print_help();
                 exit(EXIT_FAILURE);
