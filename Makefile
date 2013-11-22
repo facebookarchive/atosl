@@ -11,7 +11,8 @@ DEPS := ${SRCS:.c=.dep}
 DIST := ${TARGET}-${VERSION}
 
 .PHONY: all clean distclean dist install uninstall
-	all:: ${TARGET}
+
+all:: ${TARGET}
 
 ${TARGET}: ${OBJS}
 	    ${CC} -o $@ $^ ${LDFLAGS}
