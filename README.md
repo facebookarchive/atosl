@@ -33,7 +33,7 @@ brew install https://gist.github.com/zlandau/7550479/raw/b084adb5506b186b520783b
 #### Update config.mk.local
 
 ```sh
-echo "DWARFLDFLAGS += -L$(dirname $(brew list binutils| grep libiberty.a))" >> config.mk.local
+echo "LDFLAGS += -L$(dirname $(brew list binutils| grep libiberty.a))" >> config.mk.local
 ```
 
 ## Usage
