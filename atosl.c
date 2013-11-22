@@ -1197,9 +1197,11 @@ int main(int argc, char *argv[]) {
                 options.use_globals = 1;
                 break;
             case '?':
-            case 'h':
                 print_help();
                 exit(EXIT_FAILURE);
+            case 'h':
+                print_help();
+                exit(EXIT_SUCCESS);
             default:
                 fatal("unhandled option");
         }
