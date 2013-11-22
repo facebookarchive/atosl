@@ -62,6 +62,7 @@ static struct option longopts[] = {
     {"globals", no_argument, NULL, 'g'},
     {"version", no_argument, NULL, 'V'},
     {"help", no_argument, NULL, 'h'},
+    {NULL, 0, NULL, 0}
 };
 
 static struct {
