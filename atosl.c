@@ -179,8 +179,8 @@ int parse_uuid(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     int i;
     int ret;
 
-    ret = read(obj->handle, context.uuid, UUID_LEN);
-    if (ret != sizeof(context.uuid))
+    ret = _read(obj->handle, context.uuid, UUID_LEN);
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -205,8 +205,8 @@ int parse_section(dwarf_mach_object_access_internals_t *obj)
 
     memset(s, 0, sizeof(*s));
 
-    ret = read(obj->handle, &s->mach_section, sizeof(s->mach_section));
-    if (ret != sizeof(s->mach_section))
+    ret = _read(obj->handle, &s->mach_section, sizeof(s->mach_section));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -252,8 +252,8 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     struct segment_command_t segment;
     int i;
 
-    ret = read(obj->handle, &segment, sizeof(segment));
-    if (ret != sizeof(segment))
+    ret = _read(obj->handle, &segment, sizeof(segment));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -295,8 +295,8 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     struct symtab_command_t symtab;
     struct symbol_t *current;
 
-    ret = read(obj->handle, &symtab, sizeof(symtab));
-    if (ret != sizeof(symtab))
+    ret = _read(obj->handle, &symtab, sizeof(symtab));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -319,8 +319,8 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     if (ret < 0)
         fatal("error seeking: %s", strerror(errno));
 
-    ret = read(obj->handle, strtable, symtab.strsize);
-    if (ret != symtab.strsize)
+    ret = _read(obj->handle, strtable, symtab.strsize);
+    if (ret < 0)
         fatal_file(ret);
 
     ret = lseek(obj->handle, context.arch.offset+symtab.symoff, SEEK_SET);
@@ -334,8 +334,8 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     current = context.symlist;
 
     for (i = 0; i < symtab.nsyms; i++) {
-        ret = read(obj->handle, &current->sym, sizeof(current->sym));
-        if (ret != sizeof(current->sym))
+        ret = _read(obj->handle, &current->sym, sizeof(current->sym));
+        if (ret < 0)
             fatal_file(ret);
 
         if (current->sym.n_un.n_strx) {
@@ -368,8 +368,8 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     Dwarf_Word offset;
     struct function_t *func;
 
-    ret = read(obj->handle, &linkedit, sizeof(linkedit));
-    if (ret != sizeof(linkedit))
+    ret = _read(obj->handle, &linkedit, sizeof(linkedit));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -396,8 +396,8 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     if (ret < 0)
         fatal("error seeking: %s", strerror(errno));
 
-    ret = read(obj->handle, linkedit_data, linkedit.datasize);
-    if (ret != linkedit.datasize)
+    ret = _read(obj->handle, linkedit_data, linkedit.datasize);
+    if (ret < 0)
         fatal_file(ret);
 
     encoded_data = (Dwarf_Small *)linkedit_data;
@@ -582,8 +582,8 @@ static int dwarf_mach_object_access_internals_init(
     obj->endianness = DW_OBJECT_LSB;
     obj->sections = NULL;
 
-    ret = read(obj->handle, &header, sizeof(header));
-    if (ret != sizeof(header))
+    ret = _read(obj->handle, &header, sizeof(header));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -611,8 +611,8 @@ static int dwarf_mach_object_access_internals_init(
     }
 
     for (i = 0; i < header.ncmds; i++) {
-        ret = read(obj->handle, &load_command, sizeof(load_command));
-        if (ret != sizeof(load_command))
+        ret = _read(obj->handle, &load_command, sizeof(load_command));
+        if (ret < 0)
             fatal_file(ret);
 
         if (debug) {
@@ -707,8 +707,8 @@ static int dwarf_mach_object_access_load_section(
     if (ret < 0)
         fatal("error seeking: %s", strerror(errno));
 
-    ret = read(obj->handle, addr, sec->mach_section.size);
-    if (ret != sec->mach_section.size)
+    ret = _read(obj->handle, addr, sec->mach_section.size);
+    if (ret < 0)
         fatal_file(ret);
 
     *section_data = addr;
@@ -995,22 +995,22 @@ int main(int argc, char *argv[]) {
               options.dsym_filename,
               strerror(errno));
 
-    ret = read(fd, &magic, sizeof(magic));
-    if (ret != sizeof(magic))
+    ret = _read(fd, &magic, sizeof(magic));
+    if (ret < 0)
         fatal_file(fd);
 
     if (magic == FAT_CIGAM) {
         /* Find the architecture we want.. */
         uint32_t nfat_arch;
 
-        ret = read(fd, &nfat_arch, sizeof(nfat_arch));
-        if (ret != sizeof(nfat_arch))
+        ret = _read(fd, &nfat_arch, sizeof(nfat_arch));
+        if (ret < 0)
             fatal_file(fd);
 
         nfat_arch = ntohl(nfat_arch);
         for (i = 0; i < nfat_arch; i++) {
-            ret = read(fd, &context.arch, sizeof(context.arch));
-            if (ret != sizeof(context.arch))
+            ret = _read(fd, &context.arch, sizeof(context.arch));
+            if (ret < 0)
                 fatal("unable to read arch struct");
 
             context.arch.cputype = ntohl(context.arch.cputype);
@@ -1025,8 +1025,8 @@ int main(int argc, char *argv[]) {
                     fatal("unable to seek to arch (offset=%ld): %s",
                           context.arch.offset, strerror(errno));
 
-                ret = read(fd, &magic, sizeof(magic));
-                if (ret != sizeof(magic))
+                ret = _read(fd, &magic, sizeof(magic));
+                if (ret < 0)
                     fatal_file(fd);
 
                 found = 1;

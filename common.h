@@ -41,4 +41,37 @@ void common_fatal_file(const char *file, int lineno, int ret);
         } \
     } while (0);
 
+/* Wrapper to call write() in a loop until all data is written */
+static inline ssize_t
+_write(int fd, const void *buf, size_t count)
+{
+    ssize_t written = 0;
+    ssize_t ret = 0;
+    while (written < count) {
+        ret = write(fd, buf+written, count-written);
+        if (ret == 0)
+            return written;
+        else if (ret < 0)
+            return ret;
+        written += ret;
+    }
+    return written;
+}
+
+/* Wrapper to call read() in a loop until all data is read */
+static inline ssize_t _read(int fd, void *buf, size_t count)
+{
+    ssize_t n_read = 0;
+    ssize_t ret = 0;
+    while (n_read < count) {
+        ret = read(fd, buf+n_read, count-n_read);
+        if (ret == 0)
+            return n_read;
+        else if (ret < 0)
+            return ret;
+        n_read += ret;
+    }
+    return n_read;
+}
+
 #endif /* COMMON_ */
