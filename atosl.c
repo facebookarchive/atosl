@@ -941,6 +941,8 @@ int main(int argc, char *argv[]) {
     cpu_subtype_t st = -1;
     long address;
 
+    memset(&context, 0, sizeof(context));
+
     while ((c = getopt_long(argc, argv, shortopts, longopts, &option_index))
             >= 0) {
         switch (c) {
