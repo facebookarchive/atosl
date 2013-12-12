@@ -15,6 +15,8 @@
 
 #define USAGE "Usage: atosl -o|--dsym <FILENAME> [OPTIONS]... <ADDRESS>..."
 
+#define UUID_LEN 16
+
 struct dwarf_subprogram_t;
 struct dwarf_subprogram_t {
     const char *name;

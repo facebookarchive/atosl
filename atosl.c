@@ -119,6 +119,8 @@ static struct {
     Dwarf_Addr linkedit_addr;
 
     struct fat_arch_t arch;
+
+    uint8_t uuid[UUID_LEN];
 } context;
 
 typedef struct {
@@ -176,16 +178,15 @@ int parse_uuid(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
 {
     int i;
     int ret;
-    uint8_t uuid[16];
 
-    ret = read(obj->handle, uuid, sizeof(uuid));
-    if (ret != sizeof(uuid))
+    ret = read(obj->handle, context.uuid, UUID_LEN);
+    if (ret != sizeof(context.uuid))
         fatal_file(ret);
 
     if (debug) {
         fprintf(stderr, "%10s ", "uuid");
-        for (i = 0; i < sizeof(uuid); i++) {
-            fprintf(stderr, "%.02x", uuid[i]);
+        for (i = 0; i < UUID_LEN; i++) {
+            fprintf(stderr, "%.02x", context.uuid[i]);
         }
         fprintf(stderr, "\n");
     }
