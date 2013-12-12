@@ -17,6 +17,10 @@
 
 #define UUID_LEN 16
 
+#ifndef MAX
+#define MAX(x,y) ((x)>(y)?(x):(y))
+#endif
+
 struct dwarf_subprogram_t;
 struct dwarf_subprogram_t {
     const char *name;

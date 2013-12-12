@@ -17,12 +17,36 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <errno.h>
+#include <libgen.h>
 
 #include <dwarf.h>
 #include <libdwarf.h>
 
 #include "subprograms.h"
 #include "common.h"
+
+struct atosl_cache_header_t {
+    unsigned int magic;
+    unsigned int version;
+    unsigned int n_entries;
+    unsigned int cksum;
+};
+
+struct atosl_cache_entry_t {
+    Dwarf_Addr lowpc;
+    Dwarf_Addr highpc;
+    int namelen;
+    /* char *name follows the struct */
+};
+
+unsigned int checksum(int cksum, unsigned char *data, size_t len)
+{
+    int  i;
+    for (i = 0; i < len; ++i)
+        cksum += (unsigned int)(*data++);
+    return cksum;
+}
+
 
 /* This method walks the compilation units to find the symbols. It's faster
  * than caching the globals, but it requires a little more manual work and
@@ -153,6 +177,43 @@ static struct dwarf_subprogram_t *read_from_cus(Dwarf_Debug dbg)
     return subprograms;
 }
 
+static char *get_cache_filename(struct subprograms_options_t *options,
+                                uint8_t uuid[UUID_LEN])
+{
+    int i;
+    int max_dirlen  =
+        MAX(strlen(getenv("HOME")) + strlen("/") + strlen(SUBPROGRAMS_CACHE_PATH),
+            options->cache_dir ? strlen(options->cache_dir) : 0);
+    size_t filename_len =
+        max_dirlen + strlen("/") + (UUID_LEN * sizeof(char) * 2) + 1;
+
+    char *filename = malloc(sizeof(char) * filename_len);
+    memset(filename, 0, filename_len);
+
+    /* First generate the directory */
+    if (options->cache_dir)
+        sprintf(filename, "%s/", options->cache_dir);
+    else
+        sprintf(filename, "%s/" SUBPROGRAMS_CACHE_PATH, getenv("HOME"));
+
+    if (access(filename, F_OK) != 0) {
+        if (errno == ENOENT) {
+            int ret = mkdir(filename, 0777);
+
+            if (ret < 0)
+                fatal("unable to create %s: %s", filename, strerror(errno));
+        }
+    }
+
+    /* Then add the filename (ascii version of uuid) */
+    filename = strcat(filename, "/");
+    char *p = filename + strlen(filename);
+    for (i = 0; i < UUID_LEN; i++)
+        p += sprintf(p, "%.02x", uuid[i]);
+
+    return filename;
+}
+
 /* simple but too slow */
 struct dwarf_subprogram_t *read_from_globals(Dwarf_Debug dbg)
 {
@@ -224,21 +285,197 @@ struct dwarf_subprogram_t *read_from_globals(Dwarf_Debug dbg)
     return subprograms;
 }
 
+static struct dwarf_subprogram_t *load_subprograms(const char *filename)
+{
+    ssize_t ret;
+    int i;
+    struct atosl_cache_header_t cache_header = {0};
+    struct atosl_cache_entry_t cache_entry;
+    struct dwarf_subprogram_t *subprograms = NULL;
+    int fd;
+    unsigned int cksum = 0;
+
+    struct dwarf_subprogram_t *subprogram;
+
+    fd = open(filename, O_RDONLY);
+    if (fd < 0) {
+        warning("unable to open cache for reading at %s: %s",
+                filename, strerror(errno));
+        goto error;
+    }
+
+    ret = _read(fd, &cache_header, sizeof(cache_header));
+    if (ret < 0) {
+        warning("unable to read data from cache: %s", strerror(errno));
+        goto error;
+    }
+
+    if (cache_header.magic != SUBPROGRAMS_CACHE_MAGIC) {
+        warning("Wrong file magic: expected %x, read %x",
+                SUBPROGRAMS_CACHE_MAGIC, cache_header.magic);
+        goto error;
+    }
+
+    if (cache_header.version != SUBPROGRAMS_CACHE_VERSION) {
+        warning("Unable to handle cache version %d", cache_header.version);
+        goto error;
+    }
+
+    for (i = 0; i < cache_header.n_entries; i++) {
+        ret = _read(fd, &cache_entry, sizeof(cache_entry));
+        if (ret < 0) {
+            warning("unable to read data from cache: %s", strerror(errno));
+            goto error;
+        }
+        cksum = checksum(cksum, (unsigned char *)&cache_entry, sizeof(cache_entry));
+
+        subprogram = malloc(sizeof(*subprogram));
+        if (!subprogram)
+            fatal("unable to allocate memory");
+        memset(subprogram, 0, sizeof(*subprogram));
+
+        subprogram->lowpc = cache_entry.lowpc;
+        subprogram->highpc = cache_entry.highpc;
+        subprogram->name = malloc(sizeof(char)*cache_entry.namelen);
+        ret = _read(fd, (char *)subprogram->name, cache_entry.namelen);
+        if (ret < 0) {
+            warning("unable to read data from cache: %s", strerror(errno));
+            goto error;
+        }
+        cksum = checksum(cksum, (unsigned char *)subprogram->name, cache_entry.namelen);
+
+        subprogram->next = subprograms;
+        subprograms = subprogram;
+    }
+
+    close(fd);
+
+    if (cache_header.cksum != cksum) {
+        warning("Invalid checksum: expected %x, read %x",
+                cache_header.cksum, cksum);
+        goto error;
+    }
+
+    return subprograms;
+
+error:
+    if (fd > 0)
+        close(fd);
+
+    warning("can't read cache from %s", filename);
+    return NULL;
+}
+
+static void save_subprograms(const char *filename, struct dwarf_subprogram_t *subprograms)
+{
+    ssize_t ret;
+    off_t offset;
+    unsigned int cksum = 0;
+    struct atosl_cache_header_t cache_header = {
+        .magic = SUBPROGRAMS_CACHE_MAGIC,
+        .version = SUBPROGRAMS_CACHE_VERSION,
+    };
+
+    struct atosl_cache_entry_t cache_entry;
+    int fd;
+
+    /* We want to put the tempfile in the same directory as the final file so we
+     * can assure an atomic rename.
+     */
+    char *tempfile =
+        malloc(strlen(filename) + strlen(".") + strlen(".XXXXXX") + 1);
+    char *pathbits = strdup(filename);
+    char *dname = dirname(pathbits);
+    /* dirname inserts a \0 where the final / was, so skip over the dname to get
+     * the basename
+     */
+    char *basename = dname + strlen(dname) + 1;
+    sprintf(tempfile, "%s/.%s.XXXXXX", dname, basename);
+
+    fd = mkstemp(tempfile);
+    if (fd < 0)
+        fatal("unable to open cache for writing at %s: %s",
+              tempfile, strerror(errno));
+
+    offset = lseek(fd, sizeof(cache_header), SEEK_SET);
+    if (offset < 0)
+        fatal("unable to seek in cache: %s", strerror(errno));
+
+    struct dwarf_subprogram_t *subprogram = subprograms;
+
+    while (subprogram) {
+        cache_entry.lowpc = subprogram->lowpc;
+        cache_entry.highpc = subprogram->highpc;
+        cache_entry.namelen = strlen(subprogram->name)+1;
+
+        cksum = checksum(cksum, (unsigned char *)&cache_entry, sizeof(cache_entry));
+        ret = _write(fd, &cache_entry, sizeof(cache_entry));
+        if (ret < 0)
+            fatal("unable to write data to cache: %s", strerror(errno));
+        cksum = checksum(cksum, (unsigned char *)subprogram->name, cache_entry.namelen);
+
+        ret = _write(fd, subprogram->name, cache_entry.namelen);
+        if (ret < 0)
+            fatal("unable to write data to cache: %s", strerror(errno));
+
+        cache_header.n_entries++;
+        subprogram = subprogram->next;
+    }
+
+    cache_header.cksum = cksum;
+
+    offset = lseek(fd, 0, SEEK_SET);
+    if (offset < 0)
+        fatal("unable to seek in cache: %s", strerror(errno));
+
+    ret = _write(fd, &cache_header, sizeof(cache_header));
+    if (ret < 0)
+        fatal("unable to write data to cache: %s", strerror(errno));
+
+    close(fd);
+
+    ret = rename(tempfile, filename);
+    if (ret < 0)
+        fatal("Unable to rename cache from %s to %s: %s",
+              tempfile, filename, strerror(errno));
+
+    free(tempfile);
+    free(pathbits);
+}
+
 struct dwarf_subprogram_t *subprograms_load(Dwarf_Debug dbg,
-                                            enum subprograms_type_t type)
+                                            uint8_t uuid[UUID_LEN],
+                                            enum subprograms_type_t type,
+                                            struct subprograms_options_t *options)
 {
     struct dwarf_subprogram_t *subprograms = NULL;
+    char *filename = NULL;
 
-    switch (type) {
-        case SUBPROGRAMS_GLOBALS:
-            subprograms = read_from_globals(dbg);
-            break;
-        case SUBPROGRAMS_CUS:
-            subprograms = read_from_cus(dbg);
-            break;
-        default:
-            fatal("unknown cache type %d", type);
+    if (options->persistent) {
+        filename = get_cache_filename(options, uuid);
+
+        if (access(filename, R_OK) == 0)
+            subprograms = load_subprograms(filename);
     }
+
+    if (!subprograms) {
+        switch (type) {
+            case SUBPROGRAMS_GLOBALS:
+                subprograms = read_from_globals(dbg);
+                break;
+            case SUBPROGRAMS_CUS:
+                subprograms = read_from_cus(dbg);
+                break;
+            default:
+                fatal("unknown cache type %d", type);
+        }
+
+        if (options->persistent)
+            save_subprograms(filename, subprograms);
+    }
+
+    if (filename)
+        free(filename);
 
     return subprograms;
 }

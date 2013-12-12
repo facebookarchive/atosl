@@ -17,13 +17,24 @@
 
 #include "common.h"
 
+#define SUBPROGRAMS_CACHE_MAGIC   0xcaceecac
+#define SUBPROGRAMS_CACHE_VERSION 1
+#define SUBPROGRAMS_CACHE_PATH    ".atosl-cache"
+
 enum subprograms_type_t {
     SUBPROGRAMS_GLOBALS,
     SUBPROGRAMS_CUS
 };
 
+struct subprograms_options_t {
+    int persistent:1;
+    const char *cache_dir;
+};
+
 struct dwarf_subprogram_t *subprograms_load(Dwarf_Debug dbg,
-                                            enum subprograms_type_t type);
+                                            uint8_t uuid[UUID_LEN],
+                                            enum subprograms_type_t type,
+                                            struct subprograms_options_t *options);
 
 #endif /* SUBPROGRAMS_ */
 

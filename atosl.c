@@ -54,13 +54,15 @@ _dwarf_decode_u_leb128(Dwarf_Small * leb128,
 
 static int debug = 0;
 
-static const char *shortopts = "vl:o:A:gVh";
+static const char *shortopts = "vl:o:A:gcC:Vh";
 static struct option longopts[] = {
     {"verbose", no_argument, NULL, 'v'},
     {"load-address", required_argument, NULL, 'l'},
     {"dsym", required_argument, NULL, 'o'},
     {"arch", optional_argument, NULL, 'A'},
     {"globals", no_argument, NULL, 'g'},
+    {"no-cache", no_argument, NULL, 'c'},
+    {"cache-dir", required_argument, NULL, 'C'},
     {"version", no_argument, NULL, 'V'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -90,11 +92,14 @@ struct function_t {
 static struct {
     Dwarf_Addr load_address;
     int use_globals;
+    int use_cache;
     const char *dsym_filename;
     cpu_subtype_t cpu_subtype;
+    const char *cache_dir;
 } options = {
     .load_address = 0x0,
     .use_globals = 0,
+    .use_cache = 1,
     .cpu_subtype = CPU_SUBTYPE_ARM_V7S,
 };
 
@@ -148,6 +153,8 @@ void print_help(void)
             "  -A, --arch=ARCH\t\tspecify architecture\n");
     fprintf(stderr,
             "  -g, --globals\t\t\tlookup symbols using global section\n");
+    fprintf(stderr,
+            "  -c, --no-cache\t\tdon't cache debugging information\n");
     fprintf(stderr,
             "  -V, --version\t\t\tget current version\n");
     fprintf(stderr,
@@ -972,6 +979,12 @@ int main(int argc, char *argv[]) {
             case 'g':
                 options.use_globals = 1;
                 break;
+            case 'c':
+                options.use_cache = 0;
+                break;
+            case 'C':
+                options.cache_dir = optarg;
+                break;
             case 'V':
                 fprintf(stderr, "atosl %s\n", VERSION);
                 exit(EXIT_SUCCESS);
@@ -1063,10 +1076,18 @@ int main(int argc, char *argv[]) {
     /* If there is dwarf info we'll use that to parse, otherwise we'll use the
      * symbol table */
     if (ret == DW_DLV_OK) {
+        struct subprograms_options_t opts = {
+            .persistent = options.use_cache,
+            .cache_dir = options.cache_dir,
+        };
+
         context.subprograms =
             subprograms_load(dbg,
-                             options.use_globals ?
-                               SUBPROGRAMS_GLOBALS : SUBPROGRAMS_CUS);
+                             context.uuid,
+                             options.use_globals ? SUBPROGRAMS_GLOBALS :
+                                                   SUBPROGRAMS_CUS,
+                             &opts);
+
         for (i = optind; i < argc; i++) {
             Dwarf_Addr addr;
             errno = 0;
