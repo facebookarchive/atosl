@@ -25,9 +25,10 @@
 #include <libdwarf.h>
 
 #include "atosl.h"
+#include "subprograms.h"
+#include "common.h"
 
 #define VERSION ATOSL_VERSION
-#define USAGE "Usage: atosl -o|--dsym <FILENAME> [OPTIONS]... <ADDRESS>..."
 
 #define DWARF_ASSERT(ret, err) \
     do { \
@@ -53,13 +54,15 @@ _dwarf_decode_u_leb128(Dwarf_Small * leb128,
 
 static int debug = 0;
 
-static const char *shortopts = "vl:o:A:gVh";
+static const char *shortopts = "vl:o:A:gcC:Vh";
 static struct option longopts[] = {
     {"verbose", no_argument, NULL, 'v'},
     {"load-address", required_argument, NULL, 'l'},
     {"dsym", required_argument, NULL, 'o'},
     {"arch", optional_argument, NULL, 'A'},
     {"globals", no_argument, NULL, 'g'},
+    {"no-cache", no_argument, NULL, 'c'},
+    {"cache-dir", required_argument, NULL, 'C'},
     {"version", no_argument, NULL, 'V'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -89,11 +92,14 @@ struct function_t {
 static struct {
     Dwarf_Addr load_address;
     int use_globals;
+    int use_cache;
     const char *dsym_filename;
     cpu_subtype_t cpu_subtype;
+    const char *cache_dir;
 } options = {
     .load_address = 0x0,
     .use_globals = 0,
+    .use_cache = 1,
     .cpu_subtype = CPU_SUBTYPE_ARM_V7S,
 };
 
@@ -103,14 +109,6 @@ struct dwarf_section_t;
 struct dwarf_section_t {
     struct section_t mach_section;
     struct dwarf_section_t *next;
-};
-
-struct dwarf_subprogram_t;
-struct dwarf_subprogram_t {
-    const char *name;
-    Dwarf_Addr lowpc;
-    Dwarf_Addr highpc;
-    struct dwarf_subprogram_t *next;
 };
 
 static struct {
@@ -126,6 +124,8 @@ static struct {
     Dwarf_Addr linkedit_addr;
 
     struct fat_arch_t arch;
+
+    uint8_t uuid[UUID_LEN];
 } context;
 
 typedef struct {
@@ -154,44 +154,12 @@ void print_help(void)
     fprintf(stderr,
             "  -g, --globals\t\t\tlookup symbols using global section\n");
     fprintf(stderr,
+            "  -c, --no-cache\t\tdon't cache debugging information\n");
+    fprintf(stderr,
             "  -V, --version\t\t\tget current version\n");
     fprintf(stderr,
             "  -h, --help\t\t\tthis help\n");
     fprintf(stderr, "\n");
-}
-
-#define fatal(args...) _fatal(__FILE__, __LINE__, args)
-static void _fatal(const char *file, int lineno, const char *format, ...)
-{
-    va_list vargs;
-    va_start(vargs, format);
-    fprintf(stderr, "atosl: %s:%d: ", file, lineno);
-    vfprintf(stderr, format, vargs);
-    fprintf(stderr, "\n");
-    exit(EXIT_FAILURE);
-}
-
-#define fatal_usage(args...) _fatal_usage(__FILE__, __LINE__, args)
-static void _fatal_usage(const char *file, int lineno, const char *format, ...)
-{
-    va_list vargs;
-    va_start(vargs, format);
-    fprintf(stderr, "atosl: %s:%d ", file, lineno);
-    vfprintf(stderr, format, vargs);
-    fprintf(stderr, "\n");
-    fprintf(stderr, USAGE "\n");
-    fprintf(stderr, "\n\n");
-    fprintf(stderr, "Try `atosl --help` for more options.\n");
-    exit(EXIT_FAILURE);
-}
-
-#define fatal_file(args...) _fatal_file(__FILE__, __LINE__, args)
-static void _fatal_file(const char *file, int lineno, int ret)
-{
-    if (ret == -1)
-        _fatal(file, lineno, "unable to read data: %s", strerror(errno));
-    else
-        _fatal(file, lineno, "too few bytes read from file");
 }
 
 void dwarf_error_handler(Dwarf_Error err, Dwarf_Ptr ptr)
@@ -217,16 +185,15 @@ int parse_uuid(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
 {
     int i;
     int ret;
-    uint8_t uuid[16];
 
-    ret = read(obj->handle, uuid, sizeof(uuid));
-    if (ret != sizeof(uuid))
+    ret = _read(obj->handle, context.uuid, UUID_LEN);
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
         fprintf(stderr, "%10s ", "uuid");
-        for (i = 0; i < sizeof(uuid); i++) {
-            fprintf(stderr, "%.02x", uuid[i]);
+        for (i = 0; i < UUID_LEN; i++) {
+            fprintf(stderr, "%.02x", context.uuid[i]);
         }
         fprintf(stderr, "\n");
     }
@@ -245,8 +212,8 @@ int parse_section(dwarf_mach_object_access_internals_t *obj)
 
     memset(s, 0, sizeof(*s));
 
-    ret = read(obj->handle, &s->mach_section, sizeof(s->mach_section));
-    if (ret != sizeof(s->mach_section))
+    ret = _read(obj->handle, &s->mach_section, sizeof(s->mach_section));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -292,8 +259,8 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     struct segment_command_t segment;
     int i;
 
-    ret = read(obj->handle, &segment, sizeof(segment));
-    if (ret != sizeof(segment))
+    ret = _read(obj->handle, &segment, sizeof(segment));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -335,8 +302,8 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     struct symtab_command_t symtab;
     struct symbol_t *current;
 
-    ret = read(obj->handle, &symtab, sizeof(symtab));
-    if (ret != sizeof(symtab))
+    ret = _read(obj->handle, &symtab, sizeof(symtab));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -359,8 +326,8 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     if (ret < 0)
         fatal("error seeking: %s", strerror(errno));
 
-    ret = read(obj->handle, strtable, symtab.strsize);
-    if (ret != symtab.strsize)
+    ret = _read(obj->handle, strtable, symtab.strsize);
+    if (ret < 0)
         fatal_file(ret);
 
     ret = lseek(obj->handle, context.arch.offset+symtab.symoff, SEEK_SET);
@@ -374,8 +341,8 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     current = context.symlist;
 
     for (i = 0; i < symtab.nsyms; i++) {
-        ret = read(obj->handle, &current->sym, sizeof(current->sym));
-        if (ret != sizeof(current->sym))
+        ret = _read(obj->handle, &current->sym, sizeof(current->sym));
+        if (ret < 0)
             fatal_file(ret);
 
         if (current->sym.n_un.n_strx) {
@@ -408,8 +375,8 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     Dwarf_Word offset;
     struct function_t *func;
 
-    ret = read(obj->handle, &linkedit, sizeof(linkedit));
-    if (ret != sizeof(linkedit))
+    ret = _read(obj->handle, &linkedit, sizeof(linkedit));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -436,8 +403,8 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     if (ret < 0)
         fatal("error seeking: %s", strerror(errno));
 
-    ret = read(obj->handle, linkedit_data, linkedit.datasize);
-    if (ret != linkedit.datasize)
+    ret = _read(obj->handle, linkedit_data, linkedit.datasize);
+    if (ret < 0)
         fatal_file(ret);
 
     encoded_data = (Dwarf_Small *)linkedit_data;
@@ -622,8 +589,8 @@ static int dwarf_mach_object_access_internals_init(
     obj->endianness = DW_OBJECT_LSB;
     obj->sections = NULL;
 
-    ret = read(obj->handle, &header, sizeof(header));
-    if (ret != sizeof(header))
+    ret = _read(obj->handle, &header, sizeof(header));
+    if (ret < 0)
         fatal_file(ret);
 
     if (debug) {
@@ -651,8 +618,8 @@ static int dwarf_mach_object_access_internals_init(
     }
 
     for (i = 0; i < header.ncmds; i++) {
-        ret = read(obj->handle, &load_command, sizeof(load_command));
-        if (ret != sizeof(load_command))
+        ret = _read(obj->handle, &load_command, sizeof(load_command));
+        if (ret < 0)
             fatal_file(ret);
 
         if (debug) {
@@ -747,8 +714,8 @@ static int dwarf_mach_object_access_load_section(
     if (ret < 0)
         fatal("error seeking: %s", strerror(errno));
 
-    ret = read(obj->handle, addr, sec->mach_section.size);
-    if (ret != sec->mach_section.size)
+    ret = _read(obj->handle, addr, sec->mach_section.size);
+    if (ret < 0)
         fatal_file(ret);
 
     *section_data = addr;
@@ -827,196 +794,6 @@ void dwarf_mach_object_access_finish(Dwarf_Obj_Access_Interface *obj)
     if (obj->object)
         free(obj->object);
     free(obj);
-}
-
-/* List a function if it's in the given DIE.
-*/
-void cache_cu(Dwarf_Debug dbg, Dwarf_Die cu_die, Dwarf_Die the_die)
-{
-    char* die_name = 0;
-    Dwarf_Error err;
-    Dwarf_Half tag;
-    Dwarf_Addr lowpc = 0;
-    Dwarf_Addr highpc = 0;
-    char *filename;
-    struct dwarf_subprogram_t *subprogram = NULL;
-    int rc;
-    Dwarf_Attribute attrib = 0;
-
-    rc = dwarf_tag(the_die, &tag, &err);
-    if (rc != DW_DLV_OK)
-        fatal("unable to parse dwarf tag");
-
-    /* Only interested in subprogram DIEs here */
-    if (tag != DW_TAG_subprogram)
-        return;
-
-    rc = dwarf_diename(the_die, &die_name, &err);
-    if (rc == DW_DLV_ERROR)
-        fatal("unable to parse dwarf diename");
-
-    if (rc == DW_DLV_NO_ENTRY)
-        return;
-
-    rc = dwarf_attr(cu_die, DW_AT_name, &attrib, &err);
-    DWARF_ASSERT(rc, err);
-
-    if (rc != DW_DLV_NO_ENTRY) {
-        rc = dwarf_formstring(attrib, &filename, &err);
-        DWARF_ASSERT(rc, err);
-
-        dwarf_dealloc(dbg, attrib, DW_DLA_ATTR);
-    }
-
-    rc = dwarf_lowpc(the_die, &lowpc, &err);
-    DWARF_ASSERT(rc, err);
-
-    rc = dwarf_highpc(the_die, &highpc, &err);
-    DWARF_ASSERT(rc, err);
-
-    /* TODO: when would these not be defined? */
-    if (lowpc && highpc) {
-        subprogram = malloc(sizeof(*subprogram));
-        if (!subprogram)
-            fatal("unable to allocate memory");
-        memset(subprogram, 0, sizeof(*subprogram));
-
-        subprogram->lowpc = lowpc;
-        subprogram->highpc = highpc;
-        subprogram->name = die_name;
-
-        subprogram->next = context.subprograms;
-        context.subprograms = subprogram;
-    }
-}
-
-/* simple but too slow */
-void cache_globals(Dwarf_Debug dbg)
-{
-        Dwarf_Global *globals = NULL;
-        Dwarf_Signed nglobals;
-        Dwarf_Off offset;
-        Dwarf_Die die;
-        Dwarf_Addr lowpc = 0;
-        Dwarf_Addr highpc = 0;
-        Dwarf_Error err;
-        Dwarf_Attribute attrib = 0;
-        struct dwarf_subprogram_t *subprogram = NULL;
-        char *name;
-        int i;
-        int ret;
-
-        ret = dwarf_get_globals(dbg, &globals, &nglobals, &err);
-        DWARF_ASSERT(ret, err);
-
-        if (ret != DW_DLV_OK)
-            fatal("unable to get dwarf globals");
-
-        for (i = 0; i < nglobals; i++) {
-            ret = dwarf_global_die_offset(globals[i], &offset, &err);
-            DWARF_ASSERT(ret, err);
-
-            /* TODO: this function does a linear search, making it pretty damn
-             * slow.. see libdwarf/dwarf_die_deliv.c:_dwarf_find_CU_Context
-             * for details */
-            ret = dwarf_offdie(dbg, offset, &die, &err);
-            DWARF_ASSERT(ret, err);
-
-            ret = dwarf_lowpc(die, &lowpc, &err);
-            DWARF_ASSERT(ret, err);
-
-            ret = dwarf_highpc(die, &highpc, &err);
-            DWARF_ASSERT(ret, err);
-
-            /* TODO: when would these not be defined? */
-            if (lowpc && highpc) {
-                subprogram = malloc(sizeof(*subprogram));
-                if (!subprogram)
-                    fatal("unable to allocate memory for subprogram");
-                memset(subprogram, 0, sizeof(*subprogram));
-
-                ret = dwarf_attr(die, DW_AT_MIPS_linkage_name, &attrib, &err);
-                if (ret == DW_DLV_OK) {
-                    ret = dwarf_formstring(attrib, &name, &err);
-                    DWARF_ASSERT(ret, err);
-
-                    dwarf_dealloc(dbg, attrib, DW_DLA_ATTR);
-                } else {
-                    ret = dwarf_globname(globals[i], &name, &err);
-                    DWARF_ASSERT(ret, err);
-                }
-
-                subprogram->lowpc = lowpc;
-                subprogram->highpc = highpc;
-                subprogram->name = name;
-
-                subprogram->next = context.subprograms;
-                context.subprograms = subprogram;
-            }
-
-            dwarf_dealloc(dbg, die, DW_DLA_DIE);
-        }
-
-}
-
-/* This method walks the compilation units to find the symbols. It's faster
- * than caching the globals, but it requires a little more manual work and
- * seems to be missing C++ symbols at the moment.  Note also that it's likely
- * only faster because of how slow dwarf_offdie is. It's probably best to
- * switch to cache_globals if we fix that */
-void cache_cus(Dwarf_Debug dbg)
-{
-    Dwarf_Unsigned cu_header_length, abbrev_offset, next_cu_header;
-    Dwarf_Half version_stamp, address_size;
-    Dwarf_Error err;
-    Dwarf_Die no_die = 0, cu_die, child_die, next_die;
-    int ret = DW_DLV_OK;
-    int rc;
-
-    while (ret == DW_DLV_OK) {
-        ret = dwarf_next_cu_header(
-                dbg,
-                &cu_header_length,
-                &version_stamp,
-                &abbrev_offset,
-                &address_size,
-                &next_cu_header,
-                &err);
-        DWARF_ASSERT(ret, err);
-
-        if (ret == DW_DLV_NO_ENTRY)
-            continue;
-
-        /* TODO: If the CU can provide an address range then we can skip over
-         * all the entire die if none of our addresses match */
-
-        /* Expect the CU to have a single sibling - a DIE */
-        ret = dwarf_siblingof(dbg, no_die, &cu_die, &err);
-        if (ret == DW_DLV_ERROR) {
-            continue;
-        }
-        DWARF_ASSERT(ret, err);
-
-        /* Expect the CU DIE to have children */
-        ret = dwarf_child(cu_die, &child_die, &err);
-        DWARF_ASSERT(ret, err);
-
-        next_die = child_die;
-
-        /* Now go over all children DIEs */
-        do {
-            cache_cu(dbg, cu_die, child_die);
-
-            rc = dwarf_siblingof(dbg, child_die, &next_die, &err);
-            DWARF_ASSERT(rc, err);
-
-            dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
-
-            child_die = next_die;
-        } while (rc != DW_DLV_NO_ENTRY);
-
-        dwarf_dealloc(dbg, cu_die, DW_DLA_DIE);
-    }
 }
 
 const char *lookup_symbol_name(Dwarf_Addr addr)
@@ -1171,6 +948,8 @@ int main(int argc, char *argv[]) {
     cpu_subtype_t st = -1;
     long address;
 
+    memset(&context, 0, sizeof(context));
+
     while ((c = getopt_long(argc, argv, shortopts, longopts, &option_index))
             >= 0) {
         switch (c) {
@@ -1200,6 +979,12 @@ int main(int argc, char *argv[]) {
             case 'g':
                 options.use_globals = 1;
                 break;
+            case 'c':
+                options.use_cache = 0;
+                break;
+            case 'C':
+                options.cache_dir = optarg;
+                break;
             case 'V':
                 fprintf(stderr, "atosl %s\n", VERSION);
                 exit(EXIT_SUCCESS);
@@ -1223,22 +1008,22 @@ int main(int argc, char *argv[]) {
               options.dsym_filename,
               strerror(errno));
 
-    ret = read(fd, &magic, sizeof(magic));
-    if (ret != sizeof(magic))
+    ret = _read(fd, &magic, sizeof(magic));
+    if (ret < 0)
         fatal_file(fd);
 
     if (magic == FAT_CIGAM) {
         /* Find the architecture we want.. */
         uint32_t nfat_arch;
 
-        ret = read(fd, &nfat_arch, sizeof(nfat_arch));
-        if (ret != sizeof(nfat_arch))
+        ret = _read(fd, &nfat_arch, sizeof(nfat_arch));
+        if (ret < 0)
             fatal_file(fd);
 
         nfat_arch = ntohl(nfat_arch);
         for (i = 0; i < nfat_arch; i++) {
-            ret = read(fd, &context.arch, sizeof(context.arch));
-            if (ret != sizeof(context.arch))
+            ret = _read(fd, &context.arch, sizeof(context.arch));
+            if (ret < 0)
                 fatal("unable to read arch struct");
 
             context.arch.cputype = ntohl(context.arch.cputype);
@@ -1253,8 +1038,8 @@ int main(int argc, char *argv[]) {
                     fatal("unable to seek to arch (offset=%ld): %s",
                           context.arch.offset, strerror(errno));
 
-                ret = read(fd, &magic, sizeof(magic));
-                if (ret != sizeof(magic))
+                ret = _read(fd, &magic, sizeof(magic));
+                if (ret < 0)
                     fatal_file(fd);
 
                 found = 1;
@@ -1291,10 +1076,18 @@ int main(int argc, char *argv[]) {
     /* If there is dwarf info we'll use that to parse, otherwise we'll use the
      * symbol table */
     if (ret == DW_DLV_OK) {
-        if (options.use_globals)
-            cache_globals(dbg); /* Slow but possibly more reliable */
-        else
-            cache_cus(dbg); /* Fast but less reliable */
+        struct subprograms_options_t opts = {
+            .persistent = options.use_cache,
+            .cache_dir = options.cache_dir,
+        };
+
+        context.subprograms =
+            subprograms_load(dbg,
+                             context.uuid,
+                             options.use_globals ? SUBPROGRAMS_GLOBALS :
+                                                   SUBPROGRAMS_CUS,
+                             &opts);
+
         for (i = optind; i < argc; i++) {
             Dwarf_Addr addr;
             errno = 0;

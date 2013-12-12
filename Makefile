@@ -1,7 +1,7 @@
 include config.mk
 
-SRCS := atosl.c
-HDRS := atosl.h
+SRCS := atosl.c subprograms.c common.c
+HDRS := atosl.h subprograms.h common.h
 
 TARGET := atosl
 
@@ -17,7 +17,7 @@ all:: ${TARGET}
 ${TARGET}: ${OBJS}
 	    ${CC} -o $@ $^ ${LDFLAGS}
 
-${OBJS}: %.o: %.c %.dep ${HDRS} config.mk
+${OBJS}: %.o: %.c %.dep ${HDRS} config.mk $(wildcard config.mk.local)
 	    ${CC} ${CFLAGS} -o $@ -c $<
 
 ${DEPS}: %.dep: %.c Makefile
