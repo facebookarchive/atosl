@@ -1,7 +1,7 @@
 include config.mk
 
-SRCS := atosl.c
-HDRS := atosl.h
+SRCS := atosl.c subprograms.c common.c
+HDRS := atosl.h subprograms.h common.h
 
 TARGET := atosl
 
