@@ -47,3 +47,12 @@ void common_fatal_file(const char *file, int lineno, int ret)
     else
         common_fatal(file, lineno, "too few bytes read from file");
 }
+
+void common_warning(const char *file, int lineno, const char *format, ...)
+{
+    va_list vargs;
+    va_start(vargs, format);
+    fprintf(stderr, "atosl: warning: %s:%d: ", file, lineno);
+    vfprintf(stderr, format, vargs);
+    fprintf(stderr, "\n");
+}
