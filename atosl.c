@@ -939,6 +939,7 @@ int main(int argc, char *argv[]) {
     Dwarf_Debug dbg = NULL;
     Dwarf_Error err;
     int derr = 0;
+    int enable_default_load_addr = 1;
     Dwarf_Obj_Access_Interface *binary_interface = NULL;
     Dwarf_Ptr errarg = NULL;
     int option_index;
@@ -958,6 +959,7 @@ int main(int argc, char *argv[]) {
                 if (address < 0)
                     fatal("unable to parse load address: `%s'", optarg);
                 options.load_address = address;
+                enable_default_load_addr = 0;
                 break;
             case 'o':
                 options.dsym_filename = optarg;
@@ -1067,6 +1069,9 @@ int main(int argc, char *argv[]) {
 
     dwarf_mach_object_access_init(fd, &binary_interface, &derr);
     assert(binary_interface);
+
+    if (enable_default_load_addr)
+        options.load_address = context.intended_addr;
 
     ret = dwarf_object_init(binary_interface,
                             dwarf_error_handler,
