@@ -1169,15 +1169,16 @@ int main(int argc, char *argv[]) {
     int found = 0;
     uint32_t magic;
     cpu_subtype_t st = -1;
-    long address;
+    Dwarf_Addr address;
 
     while ((c = getopt_long(argc, argv, shortopts, longopts, &option_index))
             >= 0) {
         switch (c) {
             case 'l':
+                errno = 0;
                 address = strtol(optarg, (char **)NULL, 16);
-                if (address < 0)
-                    fatal("unable to parse load address: `%s'", optarg);
+                if (errno != 0)
+                    fatal("invalid load address: `%s': %s", optarg, strerror(errno));
                 options.load_address = address;
                 break;
             case 'o':
@@ -1300,7 +1301,7 @@ int main(int argc, char *argv[]) {
             errno = 0;
             addr = strtol(argv[i], (char **)NULL, 16);
             if (errno != 0)
-                fatal("invalid address: %s", argv[i]);
+                fatal("invalid address: `%s': %s", argv[i], strerror(errno));
             ret = print_dwarf_symbol(dbg,
                                  options.load_address - context.intended_addr,
                                  addr);
@@ -1315,7 +1316,10 @@ int main(int argc, char *argv[]) {
     } else {
         for (i = optind; i < argc; i++) {
             Dwarf_Addr addr;
+            errno = 0;
             addr = strtol(argv[i], (char **)NULL, 16);
+            if (errno != 0)
+                fatal("invalid address address: `%s': %s", optarg, strerror(errno));
             ret = print_symtab_symbol(
                     options.load_address - context.intended_addr,
                     addr);
