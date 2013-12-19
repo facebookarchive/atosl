@@ -20,6 +20,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <libgen.h>
+#include <limits.h>
 
 #include <dwarf.h>
 #include <libdwarf.h>
@@ -97,7 +98,7 @@ static struct {
     cpu_subtype_t cpu_subtype;
     const char *cache_dir;
 } options = {
-    .load_address = 0x0,
+    .load_address = LONG_MAX,
     .use_globals = 0,
     .use_cache = 1,
     .cpu_subtype = CPU_SUBTYPE_ARM_V7S,
@@ -1067,6 +1068,9 @@ int main(int argc, char *argv[]) {
 
     dwarf_mach_object_access_init(fd, &binary_interface, &derr);
     assert(binary_interface);
+
+    if (options.load_address == LONG_MAX)
+        options.load_address = context.intended_addr;
 
     ret = dwarf_object_init(binary_interface,
                             dwarf_error_handler,
