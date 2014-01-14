@@ -619,6 +619,10 @@ static int dwarf_mach_object_access_internals_init(
             if (debug)
                 fprintf(stderr, "File type: dynamic library\n");
             break;
+        case MH_EXECUTE:
+            if (debug)
+                fprintf(stderr, "File type: executable file\n");
+            break;
         default:
             fatal("unsupported file type: 0x%x", header.filetype);
             assert(0);
