@@ -493,7 +493,13 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 
     for (i = 0; i < context.nfuncs; i++) {
         if (addr <= func->addr) {
-            assert(i > 0);
+            if (i < 1) {
+                /* Someone is asking about a symbol that comes before the first
+                 * one we know about. In that case we don't have a match for
+                 * them */
+                break;
+            }
+
             struct function_t *prev = (func - 1);
             struct symbol_t *sym = NULL;
             int found_sym = 0;
