@@ -74,6 +74,7 @@ static struct {
     cpu_type_t type;
     cpu_subtype_t subtype;
 } arch_str_to_type[] = {
+    {"i386", CPU_TYPE_I386, CPU_SUBTYPE_X86_ALL},
     {"armv7",  CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7},
     {"armv7s", CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7S},
 };

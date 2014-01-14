@@ -41,6 +41,9 @@
 #define CPU_SUBTYPE_ARM_V7 ((cpu_subtype_t)9)
 #define CPU_SUBTYPE_ARM_V7S ((cpu_subtype_t)11)
 
+#define CPU_TYPE_I386 ((cpu_type_t)7)
+#define CPU_SUBTYPE_X86_ALL ((cpu_subtype_t)3)
+
 #define N_ARM_THUMB_DEF 0x0008
 
 #define NUMOF(x) (sizeof((x))/sizeof((x)[0]))
