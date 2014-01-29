@@ -71,10 +71,12 @@ static struct option longopts[] = {
 
 static struct {
     const char *name;
+    cpu_type_t type;
     cpu_subtype_t subtype;
-} arm_str_to_subtype[] = {
-    {"armv7",  CPU_SUBTYPE_ARM_V7},
-    {"armv7s", CPU_SUBTYPE_ARM_V7S},
+} arch_str_to_type[] = {
+    {"i386", CPU_TYPE_I386, CPU_SUBTYPE_X86_ALL},
+    {"armv7",  CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7},
+    {"armv7s", CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7S},
 };
 
 struct symbol_t {
@@ -95,12 +97,14 @@ static struct {
     int use_globals;
     int use_cache;
     const char *dsym_filename;
+    cpu_type_t cpu_type;
     cpu_subtype_t cpu_subtype;
     const char *cache_dir;
 } options = {
     .load_address = LONG_MAX,
     .use_globals = 0,
     .use_cache = 1,
+    .cpu_type = CPU_TYPE_ARM,
     .cpu_subtype = CPU_SUBTYPE_ARM_V7S,
 };
 
@@ -492,8 +496,14 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
     func = context.funclist;
 
     for (i = 0; i < context.nfuncs; i++) {
-        if (addr <= func->addr) {
-            assert(i > 0);
+        if (addr < func->addr) {
+            if (i < 1) {
+                /* Someone is asking about a symbol that comes before the first
+                 * one we know about. In that case we don't have a match for
+                 * them */
+                break;
+            }
+
             struct function_t *prev = (func - 1);
             struct symbol_t *sym = NULL;
             int found_sym = 0;
@@ -612,6 +622,10 @@ static int dwarf_mach_object_access_internals_init(
         case MH_DYLIB:
             if (debug)
                 fprintf(stderr, "File type: dynamic library\n");
+            break;
+        case MH_EXECUTE:
+            if (debug)
+                fprintf(stderr, "File type: executable file\n");
             break;
         default:
             fatal("unsupported file type: 0x%x", header.filetype);
@@ -946,7 +960,8 @@ int main(int argc, char *argv[]) {
     int c;
     int found = 0;
     uint32_t magic;
-    cpu_subtype_t st = -1;
+    cpu_type_t cpu_type = -1;
+    cpu_subtype_t cpu_subtype = -1;
     Dwarf_Addr address;
 
     memset(&context, 0, sizeof(context));
@@ -965,15 +980,17 @@ int main(int argc, char *argv[]) {
                 options.dsym_filename = optarg;
                 break;
             case 'A':
-                for (i = 0; i < NUMOF(arm_str_to_subtype); i++) {
-                    if (strcmp(arm_str_to_subtype[i].name, optarg) == 0) {
-                        st = arm_str_to_subtype[i].subtype;
+                for (i = 0; i < NUMOF(arch_str_to_type); i++) {
+                    if (strcmp(arch_str_to_type[i].name, optarg) == 0) {
+                        cpu_type = arch_str_to_type[i].type;
+                        cpu_subtype = arch_str_to_type[i].subtype;
                         break;
                     }
                 }
-                if (st < 0)
+                if ((cpu_type < 0) && (cpu_subtype < 0))
                     fatal("unsupported architecture `%s'", optarg);
-                options.cpu_subtype = st;
+                options.cpu_type = cpu_type;
+                options.cpu_subtype = cpu_subtype;
                 break;
             case 'v':
                 debug = 1;
@@ -1032,7 +1049,7 @@ int main(int argc, char *argv[]) {
             context.arch.cpusubtype = ntohl(context.arch.cpusubtype);
             context.arch.offset = ntohl(context.arch.offset);
 
-            if ((context.arch.cputype == CPU_TYPE_ARM) &&
+            if ((context.arch.cputype == options.cpu_type) &&
                 (context.arch.cpusubtype == options.cpu_subtype)) {
                 /* good! */
                 ret = lseek(fd, context.arch.offset, SEEK_SET);
