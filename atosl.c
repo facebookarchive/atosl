@@ -828,6 +828,43 @@ const char *lookup_symbol_name(Dwarf_Addr addr)
     return "(unknown)";
 }
 
+int print_subprogram_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
+{
+    struct dwarf_subprogram_t *subprogram = context.subprograms;
+    struct dwarf_subprogram_t *prev = NULL;
+    struct dwarf_subprogram_t *match = NULL;
+    char *demangled = NULL;
+
+    addr -= slide;
+
+    /* Address is before our first symbol */
+    if (addr < subprogram->lowpc)
+        return -1;
+
+    while (subprogram) {
+        if (prev && (addr < subprogram->lowpc)) {
+            match = prev;
+            break;
+        }
+
+        prev = subprogram;
+        subprogram = subprogram->next;
+    }
+
+    if (match) {
+        demangled = demangle(match->name);
+        printf("%s (in %s) + %d\n",
+               demangled ?: match->name,
+               basename((char *)options.dsym_filename),
+               (unsigned int)(addr - match->lowpc));
+        if (demangled)
+            free(demangled);
+
+    }
+
+    return match ? 0 : -1;
+}
+
 int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
 {
     static Dwarf_Arange *arange_buf = NULL;
@@ -1122,8 +1159,14 @@ int main(int argc, char *argv[]) {
             ret = print_dwarf_symbol(dbg,
                                  options.load_address - context.intended_addr,
                                  addr);
-            if (ret != DW_DLV_OK)
+            if (ret != DW_DLV_OK) {
+                derr = print_subprogram_symbol(
+                         options.load_address - context.intended_addr, addr);
+            }
+
+            if ((ret != DW_DLV_OK) && derr) {
                 printf("%s\n", argv[i]);
+            }
         }
 
         dwarf_mach_object_access_finish(binary_interface);
