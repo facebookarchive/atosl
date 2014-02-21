@@ -934,6 +934,9 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
 
             found = 1;
 
+            if (demangled)
+                free(demangled);
+
             dwarf_dealloc(dbg, diename, DW_DLA_STRING);
             dwarf_dealloc(dbg, filename, DW_DLA_STRING);
 
