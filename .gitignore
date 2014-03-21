@@ -1,1 +1,4 @@
+atosl
+*.dep
+*.o
 config.mk.local
