@@ -75,8 +75,10 @@ static struct {
     cpu_subtype_t subtype;
 } arch_str_to_type[] = {
     {"i386", CPU_TYPE_I386, CPU_SUBTYPE_X86_ALL},
+    {"armv6",  CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V6},
     {"armv7",  CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7},
     {"armv7s", CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7S},
+    {"arm64",  CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL}
 };
 
 struct symbol_t {
@@ -116,6 +118,12 @@ struct dwarf_section_t {
     struct dwarf_section_t *next;
 };
 
+struct dwarf_section_64_t;
+struct dwarf_section_64_t {
+    struct section_64_t mach_section;
+    struct dwarf_section_64_t *next;
+};
+
 static struct {
     /* Symbols from symtab */
     struct symbol_t *symlist;
@@ -141,6 +149,7 @@ typedef struct {
 
     Dwarf_Unsigned section_count;
     struct dwarf_section_t *sections;
+    struct dwarf_section_64_t *sections_64;
 } dwarf_mach_object_access_internals_t;
 
 void print_help(void)
@@ -256,6 +265,57 @@ int parse_section(dwarf_mach_object_access_internals_t *obj)
     return 0;
 }
 
+int parse_section_64(dwarf_mach_object_access_internals_t *obj)
+{
+    int ret;
+    struct dwarf_section_64_t *s;
+
+    s = malloc(sizeof(*s));
+    if (!s)
+        fatal("unable to allocate memory");
+
+    memset(s, 0, sizeof(*s));
+
+    ret = _read(obj->handle, &s->mach_section, sizeof(s->mach_section));
+    if (ret < 0)
+        fatal_file(ret);
+
+    if (debug) {
+        fprintf(stderr, "Section\n");
+        fprintf(stderr, "%10s %s\n", "sectname", s->mach_section.sectname);
+        fprintf(stderr, "%10s %s\n", "segname", s->mach_section.segname);
+        fprintf(stderr, "%10s 0x%.8llx\n", "addr", s->mach_section.addr);
+        fprintf(stderr, "%10s 0x%.8llx\n", "size", s->mach_section.size);
+        fprintf(stderr, "%10s %d\n", "offset", s->mach_section.offset);
+        /* TODO: what is the second value here? */
+        fprintf(stderr, "%10s 2^%d (?)\n", "align", s->mach_section.align);
+        fprintf(stderr, "%10s %d\n", "reloff", s->mach_section.reloff);
+        fprintf(stderr, "%10s %d\n", "nreloc", s->mach_section.nreloc);
+        fprintf(stderr, "%10s 0x%.08x\n", "flags", s->mach_section.flags);
+        fprintf(stderr, "%10s %d\n", "reserved1", s->mach_section.reserved1);
+        fprintf(stderr, "%10s %d\n", "reserved2", s->mach_section.reserved2);
+        fprintf(stderr, "%10s %d\n", "reserved3", s->mach_section.reserved3);
+    }
+
+    struct dwarf_section_64_t *sec = obj->sections_64;
+    if (!sec)
+        obj->sections_64 = s;
+    else {
+        while (sec) {
+            if (sec->next == NULL) {
+                sec->next = s;
+                break;
+            } else {
+                sec = sec->next;
+            }
+        }
+    }
+
+    obj->section_count++;
+
+    return 0;
+}
+
 
 int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
 {
@@ -290,6 +350,46 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
 
     for (i = 0; i < segment.nsects; i++) {
         err = parse_section(obj);
+        if (err)
+            fatal("unable to parse section in `%s`", segment.segname);
+    }
+
+    return 0;
+}
+
+int parse_segment_64(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
+{
+    int err;
+    int ret;
+    struct segment_command_64_t segment;
+    int i;
+
+    ret = _read(obj->handle, &segment, sizeof(segment));
+    if (ret < 0)
+        fatal_file(ret);
+
+    if (debug) {
+        fprintf(stderr, "Segment: %s\n", segment.segname);
+        fprintf(stderr, "\tvmaddr: 0x%.8llx\n", segment.vmaddr);
+        fprintf(stderr, "\tvmsize: %llu\n", segment.vmsize);
+        fprintf(stderr, "\tfileoff: 0x%.8llx\n", segment.fileoff);
+        fprintf(stderr, "\tfilesize: %llu\n", segment.filesize);
+        fprintf(stderr, "\tmaxprot: %d\n", segment.maxprot);
+        fprintf(stderr, "\tinitprot: %d\n", segment.initprot);
+        fprintf(stderr, "\tnsects: %d\n", segment.nsects);
+        fprintf(stderr, "\tflags: %.08x\n", segment.flags);
+    }
+
+    if (strcmp(segment.segname, "__TEXT") == 0) {
+        context.intended_addr = segment.vmaddr;
+    }
+
+    if (strcmp(segment.segname, "__LINKEDIT") == 0) {
+        context.linkedit_addr = segment.fileoff;
+    }
+
+    for (i = 0; i < segment.nsects; i++) {
+        err = parse_section_64(obj);
         if (err)
             fatal("unable to parse section in `%s`", segment.segname);
     }
@@ -351,9 +451,6 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
             fatal_file(ret);
 
         if (current->sym.n_un.n_strx) {
-            if (current->sym.n_un.n_strx > symtab.strsize)
-                fatal("str offset (%d) greater than strsize (%d)",
-                      current->sym.n_un.n_strx, symtab.strsize);
             current->name = strtable+current->sym.n_un.n_strx;
         }
 
@@ -559,6 +656,9 @@ int parse_command(
         case LC_SEGMENT:
             ret = parse_segment(obj, load_command.cmdsize);
             break;
+        case LC_SEGMENT_64:
+            ret = parse_segment_64(obj, load_command.cmdsize);
+            break;
         case LC_SYMTAB:
             ret = parse_symtab(obj, load_command.cmdsize);
             break;
@@ -599,10 +699,18 @@ static int dwarf_mach_object_access_internals_init(
     obj->pointer_size = 4;
     obj->endianness = DW_OBJECT_LSB;
     obj->sections = NULL;
+    obj->sections_64 = NULL;
 
     ret = _read(obj->handle, &header, sizeof(header));
     if (ret < 0)
         fatal_file(ret);
+
+    /* Need to skip a couple bits if we're a 64-bit */
+    if (header.cputype == CPU_TYPE_ARM64 && header.cpusubtype == CPU_SUBTYPE_ARM64_ALL) {
+      ret = lseek(obj->handle, 4, SEEK_CUR);
+      if (ret < 0)
+        fatal_file(ret);
+    }
 
     if (debug) {
         fprintf(stderr, "Mach Header:\n");
@@ -1118,8 +1226,8 @@ int main(int argc, char *argv[]) {
     if (!found)
         fatal("no valid architectures found");
 
-    if (magic != MH_MAGIC)
-        fatal("invalid magic for architecture");
+    if (magic != MH_MAGIC && magic != MH_MAGIC_64)
+      fatal("invalid magic for architecture");
 
     if (argc <= optind)
         fatal_usage("no addresses specified");
