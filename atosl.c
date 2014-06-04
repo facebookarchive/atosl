@@ -21,7 +21,8 @@
 #include <getopt.h>
 #include <libgen.h>
 #include <limits.h>
-
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <dwarf.h>
 #include <libdwarf.h>
 
@@ -987,6 +988,68 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
     return found ? DW_DLV_OK : DW_DLV_NO_ENTRY;
 }
 
+int lipo_to_tempfile(int *fd_ref, uint32_t magic, struct fat_arch_t arch)
+{
+    // do the work of lipo... given the arch, copy the data from the source file
+    // and update the fd to point to the new file just past the magic.
+
+    //create tempfile
+    const char * TEMPLATE = "/tmp/atosl.thin.XXXXXX";
+    int template_len = strlen(TEMPLATE)+1;
+    char *thin_output_file = malloc(template_len);
+    if (thin_output_file == NULL)
+        fatal("couldn't malloc space for tempfilename");
+    strncpy(thin_output_file, TEMPLATE, template_len);
+    int thin_fd = mkstemp(thin_output_file);
+    int ret;
+
+    //dispose of the file after we close it.
+    if (unlink(thin_output_file) != 0)
+        fatal("can't unlink file");
+
+    free(thin_output_file);
+
+    if (thin_fd < 0)
+        fatal("can't create tempfile");
+
+    if (debug)
+        printf("temp file: %s\n", thin_output_file);
+
+    struct stat stat_buf;
+    if (fstat(thin_fd, &stat_buf) == -1)
+        fatal("can't stat tmpfile!");
+
+    off_t bytes_written = 0;
+
+    void *input_buffer = mmap(0, arch.size + arch.offset, PROT_READ, MAP_FILE|MAP_PRIVATE, *fd_ref, 0);
+
+    if (input_buffer == MAP_FAILED)
+        fatal("can't mmap file (errno %d)", errno);
+
+    bytes_written = write(thin_fd, &input_buffer[arch.offset], arch.size + 2 * sizeof(magic));
+
+    if (debug)
+        printf("bytes_written = %lld, size = %u", bytes_written, context.arch.size);
+
+    if (bytes_written < arch.size)
+        fatal("short write");
+
+
+    if (munmap(input_buffer,  arch.size + arch.offset) != 0)
+        fatal("can't unmap input file");
+
+    if (close(*fd_ref) == -1)
+        fatal("can't close original output file");
+
+    ret = lseek(thin_fd, sizeof(magic), SEEK_SET); //move read pointer to right past the magic header.
+    if (ret < 0)
+        fatal("unable to seek back to start of thinned file.");
+
+    *fd_ref = thin_fd;
+
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     int fd;
     int ret;
@@ -1088,6 +1151,7 @@ int main(int argc, char *argv[]) {
             context.arch.cputype = ntohl(context.arch.cputype);
             context.arch.cpusubtype = ntohl(context.arch.cpusubtype);
             context.arch.offset = ntohl(context.arch.offset);
+            context.arch.size = ntohl(context.arch.size);
 
             if ((context.arch.cputype == options.cpu_type) &&
                 (context.arch.cpusubtype == options.cpu_subtype)) {
@@ -1102,6 +1166,9 @@ int main(int argc, char *argv[]) {
                     fatal_file(fd);
 
                 found = 1;
+                if (lipo_to_tempfile(&fd, magic, context.arch) != 0) {
+                    fatal("unable to extract file\n");
+                }
                 break;
             } else {
                 /* skip */
