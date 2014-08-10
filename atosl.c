@@ -725,7 +725,7 @@ static int dwarf_mach_object_access_load_section(
     if (!addr)
         fatal("unable to allocate memory");
 
-    ret = lseek(obj->handle, sec->mach_section.offset, SEEK_SET);
+    ret = lseek(obj->handle, context.arch.offset + sec->mach_section.offset, SEEK_SET);
     if (ret < 0)
         fatal("error seeking: %s", strerror(errno));
 
