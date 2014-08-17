@@ -131,6 +131,7 @@ static struct {
     struct fat_arch_t arch;
 
     uint8_t uuid[UUID_LEN];
+    uint8_t is_dwarf;
 } context;
 
 typedef struct {
@@ -286,6 +287,10 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
 
     if (strcmp(segment.segname, "__LINKEDIT") == 0) {
         context.linkedit_addr = segment.fileoff;
+    }
+
+    if (strcmp(segment.segname, "__DWARF") == 0) {
+        context.is_dwarf = 1;
     }
 
     for (i = 0; i < segment.nsects; i++) {
@@ -1137,7 +1142,8 @@ int main(int argc, char *argv[]) {
 
     /* If there is dwarf info we'll use that to parse, otherwise we'll use the
      * symbol table */
-    if (ret == DW_DLV_OK) {
+    if (context.is_dwarf && ret == DW_DLV_OK) {
+
         struct subprograms_options_t opts = {
             .persistent = options.use_cache,
             .cache_dir = options.cache_dir,
