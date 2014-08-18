@@ -75,13 +75,18 @@ static struct {
     cpu_subtype_t subtype;
 } arch_str_to_type[] = {
     {"i386", CPU_TYPE_I386, CPU_SUBTYPE_X86_ALL},
+    {"armv6",  CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V6},
     {"armv7",  CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7},
     {"armv7s", CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7S},
+    {"arm64",  CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL}
 };
 
 struct symbol_t {
     const char *name;
-    struct nlist_t sym;
+    union {
+        struct nlist_t sym32;
+        struct nlist_64 sym64;
+    } sym;
     Dwarf_Addr addr;
     int thumb:1;
 };
@@ -116,6 +121,12 @@ struct dwarf_section_t {
     struct dwarf_section_t *next;
 };
 
+struct dwarf_section_64_t;
+struct dwarf_section_64_t {
+    struct section_64_t mach_section;
+    struct dwarf_section_64_t *next;
+};
+
 static struct {
     /* Symbols from symtab */
     struct symbol_t *symlist;
@@ -131,6 +142,7 @@ static struct {
     struct fat_arch_t arch;
 
     uint8_t uuid[UUID_LEN];
+    uint8_t is64;
     uint8_t is_dwarf;
 } context;
 
@@ -142,6 +154,7 @@ typedef struct {
 
     Dwarf_Unsigned section_count;
     struct dwarf_section_t *sections;
+    struct dwarf_section_64_t *sections_64;
 } dwarf_mach_object_access_internals_t;
 
 void print_help(void)
@@ -257,6 +270,57 @@ int parse_section(dwarf_mach_object_access_internals_t *obj)
     return 0;
 }
 
+int parse_section_64(dwarf_mach_object_access_internals_t *obj)
+{
+    int ret;
+    struct dwarf_section_64_t *s;
+
+    s = malloc(sizeof(*s));
+    if (!s)
+        fatal("unable to allocate memory");
+
+    memset(s, 0, sizeof(*s));
+
+    ret = _read(obj->handle, &s->mach_section, sizeof(s->mach_section));
+    if (ret < 0)
+        fatal_file(ret);
+
+    if (debug) {
+        fprintf(stderr, "Section\n");
+        fprintf(stderr, "%10s %s\n", "sectname", s->mach_section.sectname);
+        fprintf(stderr, "%10s %s\n", "segname", s->mach_section.segname);
+        fprintf(stderr, "%10s 0x%.8llx\n", "addr", (unsigned long long)s->mach_section.addr);
+        fprintf(stderr, "%10s 0x%.8llx\n", "size", (unsigned long long)s->mach_section.size);
+        fprintf(stderr, "%10s %d\n", "offset", s->mach_section.offset);
+        /* TODO: what is the second value here? */
+        fprintf(stderr, "%10s 2^%d (?)\n", "align", s->mach_section.align);
+        fprintf(stderr, "%10s %d\n", "reloff", s->mach_section.reloff);
+        fprintf(stderr, "%10s %d\n", "nreloc", s->mach_section.nreloc);
+        fprintf(stderr, "%10s 0x%.08x\n", "flags", s->mach_section.flags);
+        fprintf(stderr, "%10s %d\n", "reserved1", s->mach_section.reserved1);
+        fprintf(stderr, "%10s %d\n", "reserved2", s->mach_section.reserved2);
+        fprintf(stderr, "%10s %d\n", "reserved3", s->mach_section.reserved3);
+    }
+
+    struct dwarf_section_64_t *sec = obj->sections_64;
+    
+    if (!sec){
+        obj->sections_64 = s;
+    } else {
+        while (sec) {
+            if (sec->next == NULL) {
+                sec->next = s;
+                break;
+            } else {
+                sec = sec->next;
+            }
+        }
+    }
+
+    obj->section_count++;
+
+    return 0;
+}
 
 int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
 {
@@ -295,6 +359,50 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
 
     for (i = 0; i < segment.nsects; i++) {
         err = parse_section(obj);
+        if (err)
+            fatal("unable to parse section in `%s`", segment.segname);
+    }
+
+    return 0;
+}
+
+int parse_segment_64(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
+{
+    int err;
+    int ret;
+    struct segment_command_64_t segment;
+    int i;
+
+    ret = _read(obj->handle, &segment, sizeof(segment));
+    if (ret < 0)
+        fatal_file(ret);
+
+    if (debug) {
+        fprintf(stderr, "Segment: %s\n", segment.segname);
+        fprintf(stderr, "\tvmaddr: 0x%.8llx\n", (unsigned long long)segment.vmaddr);
+        fprintf(stderr, "\tvmsize: %llu\n", (unsigned long long)segment.vmsize);
+        fprintf(stderr, "\tfileoff: 0x%.8llx\n", (unsigned long long)segment.fileoff);
+        fprintf(stderr, "\tfilesize: %llu\n", (unsigned long long)segment.filesize);
+        fprintf(stderr, "\tmaxprot: %d\n", segment.maxprot);
+        fprintf(stderr, "\tinitprot: %d\n", segment.initprot);
+        fprintf(stderr, "\tnsects: %d\n", segment.nsects);
+        fprintf(stderr, "\tflags: %.08x\n", segment.flags);
+    }
+
+    if (strcmp(segment.segname, "__TEXT") == 0) {
+        context.intended_addr = segment.vmaddr;
+    }
+
+    if (strcmp(segment.segname, "__LINKEDIT") == 0) {
+        context.linkedit_addr = segment.fileoff;
+    }
+
+    if (strcmp(segment.segname, "__DWARF") == 0) {
+        context.is_dwarf = 1;
+    }
+
+    for (i = 0; i < segment.nsects; i++) {
+        err = parse_section_64(obj);
         if (err)
             fatal("unable to parse section in `%s`", segment.segname);
     }
@@ -351,15 +459,15 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     current = context.symlist;
 
     for (i = 0; i < symtab.nsyms; i++) {
-        ret = _read(obj->handle, &current->sym, sizeof(current->sym));
+        ret = _read(obj->handle, context.is64 ? (void*)&current->sym.sym64 : (void*)&current->sym.sym32, context.is64 ? sizeof(current->sym.sym64) : sizeof(current->sym.sym32));
         if (ret < 0)
             fatal_file(ret);
 
-        if (current->sym.n_un.n_strx) {
-            if (current->sym.n_un.n_strx > symtab.strsize)
+        if (context.is64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx) {
+            if ((context.is64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx) > symtab.strsize)
                 fatal("str offset (%d) greater than strsize (%d)",
-                      current->sym.n_un.n_strx, symtab.strsize);
-            current->name = strtable+current->sym.n_un.n_strx;
+                      (context.is64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx), symtab.strsize);
+            current->name = strtable+(context.is64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx);
         }
 
         current++;
@@ -447,7 +555,10 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
 
 int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 {
-    struct nlist_t nlist;
+    union {
+        struct nlist_t nlist32;
+        struct nlist_64 nlist64;
+    } nlist;
     struct symbol_t *current;
     struct function_t *func;
     char *demangled = NULL;
@@ -460,26 +571,26 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
     current = context.symlist;
 
     for (i = 0; i < context.nsymbols; i++) {
-        memcpy(&nlist, &current->sym, sizeof(current->sym));
 
-        current->thumb = (nlist.n_desc & N_ARM_THUMB_DEF) ? 1 : 0;
-        current->addr = nlist.n_value;
+        memcpy(context.is64 ? (void*)&nlist.nlist64 : (void*)&nlist.nlist32, context.is64 ? (void*)&current->sym.sym64 : (void*)&current->sym.sym32, context.is64 ? sizeof(current->sym.sym64) : sizeof(current->sym.sym32));
+        current->thumb = ((context.is64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc) & N_ARM_THUMB_DEF) ? 1 : 0;
 
+        current->addr = context.is64 ? nlist.nlist64.n_value : nlist.nlist32.n_value;
         if (debug) {
             fprintf(stderr, "\t\tname: %s\n", current->name);
-            fprintf(stderr, "\t\tn_un.n_un.n_strx: %d\n", nlist.n_un.n_strx);
-            fprintf(stderr, "\t\traw n_type: 0x%x\n", nlist.n_type);
+            fprintf(stderr, "\t\tn_un.n_un.n_strx: %d\n", context.is64 ? nlist.nlist64.n_un.n_strx : nlist.nlist32.n_un.n_strx);
+            fprintf(stderr, "\t\traw n_type: 0x%x\n", context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type);
             fprintf(stderr, "\t\tn_type: ");
-            if (nlist.n_type & N_STAB)
+            if ((context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_STAB)
                 fprintf(stderr, "N_STAB ");
-            if (nlist.n_type & N_PEXT)
+            if ((context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_PEXT)
                 fprintf(stderr, "N_PEXT ");
-            if (nlist.n_type & N_EXT)
+            if ((context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_EXT)
                 fprintf(stderr, "N_EXT ");
             fprintf(stderr, "\n");
 
             fprintf(stderr, "\t\tType: ");
-            switch (nlist.n_type & N_TYPE) {
+            switch ((context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_TYPE) {
                 case 0: fprintf(stderr, "U "); break;
                 case N_ABS: fprintf(stderr, "A "); break;
                 case N_SECT: fprintf(stderr, "S "); break;
@@ -488,10 +599,10 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 
             fprintf(stderr, "\n");
 
-            fprintf(stderr, "\t\tn_sect: %d\n", nlist.n_sect);
-            fprintf(stderr, "\t\tn_desc: %d\n", nlist.n_desc);
-            fprintf(stderr, "\t\tn_value: %.08x\n", nlist.n_value);
-            fprintf(stderr, "\t\taddr: %.08x\n", (unsigned int)current->addr);
+            fprintf(stderr, "\t\tn_sect: %d\n", context.is64 ? nlist.nlist64.n_sect : nlist.nlist32.n_sect);
+            fprintf(stderr, "\t\tn_desc: %d\n", context.is64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc);
+            fprintf(stderr, "\t\tn_value: 0x%llx\n", (unsigned long long)(context.is64 ? nlist.nlist64.n_value : nlist.nlist32.n_value));
+            fprintf(stderr, "\t\taddr: 0x%llx\n", current->addr);
             fprintf(stderr, "\n");
         }
 
@@ -524,7 +635,7 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             }
 
             if (!found_sym)
-                fatal("unable to find symbol at address %x", sym->addr);
+                fatal("unable to find symbol at address %llx", sym->addr);
 
             demangled = demangle(sym->name);
             name = demangled ? demangled : sym->name;
@@ -563,6 +674,9 @@ int parse_command(
             break;
         case LC_SEGMENT:
             ret = parse_segment(obj, load_command.cmdsize);
+            break;
+        case LC_SEGMENT_64:
+            ret = parse_segment_64(obj, load_command.cmdsize);
             break;
         case LC_SYMTAB:
             ret = parse_symtab(obj, load_command.cmdsize);
@@ -604,10 +718,19 @@ static int dwarf_mach_object_access_internals_init(
     obj->pointer_size = 4;
     obj->endianness = DW_OBJECT_LSB;
     obj->sections = NULL;
+    obj->sections_64 = NULL;
 
     ret = _read(obj->handle, &header, sizeof(header));
     if (ret < 0)
         fatal_file(ret);
+    
+    /* Need to skip 4 bytes of the reserved field of mach_header_64  */
+    if (header.cputype == CPU_TYPE_ARM64 && header.cpusubtype == CPU_SUBTYPE_ARM64_ALL) {
+        context.is64 = 1;
+        ret = lseek(obj->handle, sizeof(uint32_t), SEEK_CUR);
+        if (ret < 0)
+            fatal_file(ret);
+    }
 
     if (debug) {
         fprintf(stderr, "Mach Header:\n");
@@ -684,16 +807,26 @@ static int dwarf_mach_object_access_get_section_info(
         *error = DW_DLE_MDE;
         return DW_DLV_ERROR;
     }
-
-    struct dwarf_section_t *sec = obj->sections;
-    for (i = 0; i < section_index; i++) {
-        sec = sec->next;
+    
+    if (obj->sections_64) {
+        struct dwarf_section_64_t *sec = obj->sections_64;
+        for (i = 0; i < section_index; i++) {
+            sec = sec->next;
+        }
+        sec->mach_section.sectname[1] = '.';
+        ret_scn->size = sec->mach_section.size;
+        ret_scn->addr = sec->mach_section.addr;
+        ret_scn->name = sec->mach_section.sectname+1;
+    } else {
+        struct dwarf_section_t *sec = obj->sections;
+        for (i = 0; i < section_index; i++) {
+            sec = sec->next;
+        }
+        sec->mach_section.sectname[1] = '.';
+        ret_scn->size = sec->mach_section.size;
+        ret_scn->addr = sec->mach_section.addr;
+        ret_scn->name = sec->mach_section.sectname+1;
     }
-
-    sec->mach_section.sectname[1] = '.';
-    ret_scn->size = sec->mach_section.size;
-    ret_scn->addr = sec->mach_section.addr;
-    ret_scn->name = sec->mach_section.sectname+1;
     if (strcmp(ret_scn->name, ".debug_pubnames__DWARF") == 0)
         ret_scn->name = ".debug_pubnames";
 
@@ -721,23 +854,37 @@ static int dwarf_mach_object_access_load_section(
         return DW_DLV_ERROR;
     }
 
-    struct dwarf_section_t *sec = obj->sections;
-    for (i = 0; i < section_index; i++) {
-        sec = sec->next;
+    if (obj->sections_64) {
+        struct dwarf_section_64_t *sec = obj->sections_64;
+        for (i = 0; i < section_index; i++) {
+            sec = sec->next;
+        }
+        addr = malloc(sec->mach_section.size);
+        if (!addr)
+            fatal("unable to allocate memory");
+        ret = lseek(obj->handle, context.arch.offset + sec->mach_section.offset, SEEK_SET);
+        if (ret < 0)
+            fatal("error seeking: %s", strerror(errno));
+        ret = _read(obj->handle, addr, sec->mach_section.size);
+        if (ret < 0)
+            fatal_file(ret);
+
+    } else {
+        struct dwarf_section_t *sec = obj->sections;
+        for (i = 0; i < section_index; i++) {
+            sec = sec->next;
+        }
+        addr = malloc(sec->mach_section.size);
+        if (!addr)
+            fatal("unable to allocate memory");
+        ret = lseek(obj->handle, context.arch.offset + sec->mach_section.offset, SEEK_SET);
+        if (ret < 0)
+            fatal("error seeking: %s", strerror(errno));
+        ret = _read(obj->handle, addr, sec->mach_section.size);
+        if (ret < 0)
+            fatal_file(ret);
+        
     }
-
-    addr = malloc(sec->mach_section.size);
-    if (!addr)
-        fatal("unable to allocate memory");
-
-    ret = lseek(obj->handle, context.arch.offset + sec->mach_section.offset, SEEK_SET);
-    if (ret < 0)
-        fatal("error seeking: %s", strerror(errno));
-
-    ret = _read(obj->handle, addr, sec->mach_section.size);
-    if (ret < 0)
-        fatal_file(ret);
-
     *section_data = addr;
 
     return DW_DLV_OK;
@@ -1123,8 +1270,8 @@ int main(int argc, char *argv[]) {
     if (!found)
         fatal("no valid architectures found");
 
-    if (magic != MH_MAGIC)
-        fatal("invalid magic for architecture");
+    if (magic != MH_MAGIC && magic != MH_MAGIC_64)
+      fatal("invalid magic for architecture");
 
     if (argc <= optind)
         fatal_usage("no addresses specified");
