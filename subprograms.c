@@ -119,14 +119,41 @@ static struct dwarf_subprogram_t *read_cu_entry(
     return subprograms;
 }
 
+static void handle_die(
+        struct dwarf_subprogram_t **subprograms,
+        Dwarf_Debug dbg, Dwarf_Die cu_die, Dwarf_Die the_die)
+{
+    int rc;
+    Dwarf_Error err;
+    Dwarf_Die current_die = the_die;
+    Dwarf_Die child_die = NULL;
+    Dwarf_Die next_die;
+
+    do {
+        *subprograms = read_cu_entry(*subprograms, dbg, cu_die, current_die);
+
+        // Recursive call handle_die with child, to continue searching within child dies
+        rc = dwarf_child(current_die, &child_die, &err);
+        DWARF_ASSERT(rc, err);
+        if (rc == DW_DLV_OK && child_die)
+            handle_die(subprograms, dbg, cu_die, child_die);    
+
+        rc = dwarf_siblingof(dbg, current_die, &next_die, &err);
+        DWARF_ASSERT(rc, err);
+
+        dwarf_dealloc(dbg, current_die, DW_DLA_DIE);
+
+        current_die = next_die;
+    } while (rc != DW_DLV_NO_ENTRY);
+}
+
 static struct dwarf_subprogram_t *read_from_cus(Dwarf_Debug dbg)
 {
     Dwarf_Unsigned cu_header_length, abbrev_offset, next_cu_header;
     Dwarf_Half version_stamp, address_size;
     Dwarf_Error err;
-    Dwarf_Die no_die = 0, cu_die, child_die, next_die;
+    Dwarf_Die no_die = 0, cu_die, child_die;
     int ret = DW_DLV_OK;
-    int rc;
     struct dwarf_subprogram_t *subprograms = NULL;
 
     while (ret == DW_DLV_OK) {
@@ -157,19 +184,7 @@ static struct dwarf_subprogram_t *read_from_cus(Dwarf_Debug dbg)
         ret = dwarf_child(cu_die, &child_die, &err);
         DWARF_ASSERT(ret, err);
 
-        next_die = child_die;
-
-        /* Now go over all children DIEs */
-        do {
-            subprograms = read_cu_entry(subprograms, dbg, cu_die, child_die);
-
-            rc = dwarf_siblingof(dbg, child_die, &next_die, &err);
-            DWARF_ASSERT(rc, err);
-
-            dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
-
-            child_die = next_die;
-        } while (rc != DW_DLV_NO_ENTRY);
+        handle_die(&subprograms, dbg, cu_die, child_die);  
 
         dwarf_dealloc(dbg, cu_die, DW_DLA_DIE);
     }
