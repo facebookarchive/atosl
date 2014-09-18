@@ -20,6 +20,7 @@
 #define SUBPROGRAMS_CACHE_MAGIC   0xcaceecac
 #define SUBPROGRAMS_CACHE_VERSION 1
 #define SUBPROGRAMS_CACHE_PATH    ".atosl-cache"
+#define DW_LANG_Swift    		  0x1e
 
 enum subprograms_type_t {
     SUBPROGRAMS_GLOBALS,
