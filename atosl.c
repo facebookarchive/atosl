@@ -142,7 +142,7 @@ static struct {
     struct fat_arch_t arch;
 
     uint8_t uuid[UUID_LEN];
-    uint8_t is64;
+    uint8_t is_64;
     uint8_t is_dwarf;
 } context;
 
@@ -304,7 +304,7 @@ int parse_section_64(dwarf_mach_object_access_internals_t *obj)
 
     struct dwarf_section_64_t *sec = obj->sections_64;
     
-    if (!sec){
+    if (!sec) {
         obj->sections_64 = s;
     } else {
         while (sec) {
@@ -459,15 +459,15 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     current = context.symlist;
 
     for (i = 0; i < symtab.nsyms; i++) {
-        ret = _read(obj->handle, context.is64 ? (void*)&current->sym.sym64 : (void*)&current->sym.sym32, context.is64 ? sizeof(current->sym.sym64) : sizeof(current->sym.sym32));
+        ret = _read(obj->handle, context.is_64 ? (void*)&current->sym.sym64 : (void*)&current->sym.sym32, context.is_64 ? sizeof(current->sym.sym64) : sizeof(current->sym.sym32));
         if (ret < 0)
             fatal_file(ret);
 
-        if (context.is64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx) {
-            if ((context.is64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx) > symtab.strsize)
+        if (context.is_64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx) {
+            if ((context.is_64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx) > symtab.strsize)
                 fatal("str offset (%d) greater than strsize (%d)",
-                      (context.is64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx), symtab.strsize);
-            current->name = strtable+(context.is64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx);
+                      (context.is_64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx), symtab.strsize);
+            current->name = strtable+(context.is_64 ? current->sym.sym64.n_un.n_strx : current->sym.sym32.n_un.n_strx);
         }
 
         current++;
@@ -572,25 +572,25 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 
     for (i = 0; i < context.nsymbols; i++) {
 
-        memcpy(context.is64 ? (void*)&nlist.nlist64 : (void*)&nlist.nlist32, context.is64 ? (void*)&current->sym.sym64 : (void*)&current->sym.sym32, context.is64 ? sizeof(current->sym.sym64) : sizeof(current->sym.sym32));
-        current->thumb = ((context.is64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc) & N_ARM_THUMB_DEF) ? 1 : 0;
+        memcpy(context.is_64 ? (void*)&nlist.nlist64 : (void*)&nlist.nlist32, context.is_64 ? (void*)&current->sym.sym64 : (void*)&current->sym.sym32, context.is_64 ? sizeof(current->sym.sym64) : sizeof(current->sym.sym32));
+        current->thumb = ((context.is_64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc) & N_ARM_THUMB_DEF) ? 1 : 0;
 
-        current->addr = context.is64 ? nlist.nlist64.n_value : nlist.nlist32.n_value;
+        current->addr = context.is_64 ? nlist.nlist64.n_value : nlist.nlist32.n_value;
         if (debug) {
             fprintf(stderr, "\t\tname: %s\n", current->name);
-            fprintf(stderr, "\t\tn_un.n_un.n_strx: %d\n", context.is64 ? nlist.nlist64.n_un.n_strx : nlist.nlist32.n_un.n_strx);
-            fprintf(stderr, "\t\traw n_type: 0x%x\n", context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type);
+            fprintf(stderr, "\t\tn_un.n_un.n_strx: %d\n", context.is_64 ? nlist.nlist64.n_un.n_strx : nlist.nlist32.n_un.n_strx);
+            fprintf(stderr, "\t\traw n_type: 0x%x\n", context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type);
             fprintf(stderr, "\t\tn_type: ");
-            if ((context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_STAB)
+            if ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_STAB)
                 fprintf(stderr, "N_STAB ");
-            if ((context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_PEXT)
+            if ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_PEXT)
                 fprintf(stderr, "N_PEXT ");
-            if ((context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_EXT)
+            if ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_EXT)
                 fprintf(stderr, "N_EXT ");
             fprintf(stderr, "\n");
 
             fprintf(stderr, "\t\tType: ");
-            switch ((context.is64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_TYPE) {
+            switch ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_TYPE) {
                 case 0: fprintf(stderr, "U "); break;
                 case N_ABS: fprintf(stderr, "A "); break;
                 case N_SECT: fprintf(stderr, "S "); break;
@@ -599,9 +599,9 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 
             fprintf(stderr, "\n");
 
-            fprintf(stderr, "\t\tn_sect: %d\n", context.is64 ? nlist.nlist64.n_sect : nlist.nlist32.n_sect);
-            fprintf(stderr, "\t\tn_desc: %d\n", context.is64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc);
-            fprintf(stderr, "\t\tn_value: 0x%llx\n", (unsigned long long)(context.is64 ? nlist.nlist64.n_value : nlist.nlist32.n_value));
+            fprintf(stderr, "\t\tn_sect: %d\n", context.is_64 ? nlist.nlist64.n_sect : nlist.nlist32.n_sect);
+            fprintf(stderr, "\t\tn_desc: %d\n", context.is_64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc);
+            fprintf(stderr, "\t\tn_value: 0x%llx\n", (unsigned long long)(context.is_64 ? nlist.nlist64.n_value : nlist.nlist32.n_value));
             fprintf(stderr, "\t\taddr: 0x%llx\n", current->addr);
             fprintf(stderr, "\n");
         }
@@ -726,7 +726,7 @@ static int dwarf_mach_object_access_internals_init(
     
     /* Need to skip 4 bytes of the reserved field of mach_header_64  */
     if (header.cputype == CPU_TYPE_ARM64 && header.cpusubtype == CPU_SUBTYPE_ARM64_ALL) {
-        context.is64 = 1;
+        context.is_64 = 1;
         ret = lseek(obj->handle, sizeof(uint32_t), SEEK_CUR);
         if (ret < 0)
             fatal_file(ret);

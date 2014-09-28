@@ -47,6 +47,82 @@ unsigned int checksum(int cksum, unsigned char *data, size_t len)
     return cksum;
 }
 
+/* The following function concatenates function parameters to the function name.
+ in case we symbolicate a Swift compilation unit, since Swift enables mutliple overloads for the same function name */
+static char* get_function_name_with_params(char *die_name, Dwarf_Die the_die, Dwarf_Debug dbg)
+{
+    int rc;
+    Dwarf_Error err;
+
+    /* Allocate symbol name string buffer */
+    int symbol_name_buffer_length = (strlen(die_name) + 2) * 32; /* Buffer size */
+    char *symbol_name = malloc(symbol_name_buffer_length);
+    if (!symbol_name)
+        fatal("unable to allocate memory");
+    
+    /* Concatenate subprogram name and " (" */
+    strcpy(symbol_name, die_name);
+    strcat(symbol_name, " (");
+    int symbol_name_length = strlen(symbol_name); /* Actual string length */
+
+    /* Get subprogram children */
+    Dwarf_Die child_die = NULL;
+    Dwarf_Die next_die;
+    rc = dwarf_child(the_die, &child_die, &err);
+    DWARF_ASSERT(rc, err);
+    
+    if (rc == DW_DLV_OK && child_die){
+        do {
+            /* Get child tag */
+            Dwarf_Half child_tag;
+            rc = dwarf_tag(child_die, &child_tag, &err);
+            if (rc != DW_DLV_OK)
+                fatal("unable to parse dwarf tag");
+            
+            /* Check if child is a parameter */
+            if (child_tag == DW_TAG_formal_parameter) {
+                char* param_name = 0;
+
+                /* Get param name (child die name), ignoring the "self" parameter */
+                rc = dwarf_diename(child_die, &param_name, &err);
+                if (rc == DW_DLV_OK && strcmp(param_name, "self") != 0) {
+                
+                    /* Update actual symbol name string length */
+                    symbol_name_length += strlen(param_name) + 2;
+                    
+                    /* Check if symbol name string buffer needs expansion */
+                    if (symbol_name_length >= symbol_name_buffer_length - 1)
+                        
+                    /* Expand (reallocate) symbol name string buffer */
+                        symbol_name = realloc(symbol_name, symbol_name_buffer_length *= 2);
+                    
+                    /* Concatenate param name and ", " */
+                    strcat(symbol_name, param_name);
+                    strcat(symbol_name, ", ");
+                }
+            }
+            
+            /* Move to next sibling (param) */
+            rc = dwarf_siblingof(dbg, child_die, &next_die, &err);
+            DWARF_ASSERT(rc, err);
+            dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+            
+            child_die = next_die;
+        } while (rc != DW_DLV_NO_ENTRY);
+    }
+
+    /* Remove trailing ", " if needed */
+    int len = strlen(symbol_name);
+    if (symbol_name[len - 1] == ' ') {
+        symbol_name[len - 1] = 0;
+        symbol_name[len - 2] = 0;
+    }
+    
+    strcat (symbol_name, ")");
+
+    return symbol_name;
+}
+
 
 /* This method walks the compilation units to find the symbols. It's faster
  * than caching the globals, but it requires a little more manual work and
@@ -109,78 +185,11 @@ static struct dwarf_subprogram_t *read_cu_entry(
         memset(subprogram, 0, sizeof(*subprogram));
 
         char* symbol_name = die_name;
-
-        // The following block concatenates function parameters to the function name
-        // in case we symbolicate a Swift compilation unit, since Swift enables mutliple overloads for the same function name
-        if (language == DW_LANG_Swift) {
-            // Allocate symbol name string buffer
-            int symbol_name_buffer_length = (strlen(die_name) + 2) * 32; // Buffer size
-            symbol_name = malloc(symbol_name_buffer_length);
-            if (!symbol_name)
-                fatal("unable to allocate memory");
-
-            // Concatenate subprogram name and " ("
-            strcpy(symbol_name, die_name);
-            strcat(symbol_name, " (");
-            int symbol_name_length = strlen(symbol_name); // Actual string length
-
-            // Get subprogram children
-            Dwarf_Die child_die = NULL;
-            Dwarf_Die next_die;
-            rc = dwarf_child(the_die, &child_die, &err);
-            DWARF_ASSERT(rc, err);
-
-            if (rc == DW_DLV_OK && child_die){
-                do {
-                    // Get child tag
-                    Dwarf_Half child_tag;
-                    rc = dwarf_tag(child_die, &child_tag, &err);
-                    if (rc != DW_DLV_OK)
-                        fatal("unable to parse dwarf tag");
-
-                    // Check if child is a parameter
-                    if (child_tag == DW_TAG_formal_parameter) {
-                        char* param_name = 0;
-
-                        // Get param name (child die name)
-                        rc = dwarf_diename(child_die, &param_name, &err);
-                        if (rc == DW_DLV_OK && strcmp(param_name, "self") != 0) {
-
-                            // Update actual symbol name string length
-                            symbol_name_length += strlen(param_name) + 2;
-
-                            // Check if symbol name string buffer needs expansion
-                            if (symbol_name_length >= symbol_name_buffer_length - 1)
-
-                                // Expand (reallocate) symbol name string buffer
-                                symbol_name = realloc(symbol_name, symbol_name_buffer_length *= 2);
-
-                            // Concatenate param name and ", "
-                            strcat(symbol_name, param_name);
-                            strcat(symbol_name, ", ");
-                        } 
-                    }
-                    
-                    // Move to next sibling (param)
-                    rc = dwarf_siblingof(dbg, child_die, &next_die, &err);
-                    DWARF_ASSERT(rc, err);
-                    dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
-
-                    child_die = next_die;
-                } while (rc != DW_DLV_NO_ENTRY);
-            }
-
-            // Remove trailing ", " if needed
-            int len = strlen(symbol_name);
-            if (symbol_name[len - 1] == ' ') {
-                symbol_name[len - 1] = 0;
-                symbol_name[len - 2] = 0;
-            }
-
-            // Concatenate ")"
-            strcat (symbol_name, ")");
-        }
-
+        
+        /* Concatenate function params in case this is Swift */
+        if (language == DW_LANG_Swift)
+            symbol_name = get_function_name_with_params(die_name, the_die, dbg);
+        
         subprogram->lowpc = lowpc;
         subprogram->highpc = highpc;
         subprogram->name = symbol_name;
@@ -191,6 +200,7 @@ static struct dwarf_subprogram_t *read_cu_entry(
 
     return subprograms;
 }
+
 
 static void handle_die(
         struct dwarf_subprogram_t **subprograms,
@@ -205,7 +215,7 @@ static void handle_die(
     do {
         *subprograms = read_cu_entry(*subprograms, dbg, cu_die, current_die, language);
 
-        // Recursive call handle_die with child, to continue searching within child dies
+        /* Recursive call handle_die with child, to continue searching within child dies */
         rc = dwarf_child(current_die, &child_die, &err);
         DWARF_ASSERT(rc, err);
         if (rc == DW_DLV_OK && child_die)
@@ -255,11 +265,11 @@ static struct dwarf_subprogram_t *read_from_cus(Dwarf_Debug dbg)
         }
         DWARF_ASSERT(ret, err);
 
-        // Get compilation unit language attribute
+        /* Get compilation unit language attribute */
         ret = dwarf_attr(cu_die, DW_AT_language, &language_attr, &err);
         DWARF_ASSERT(ret, err);
         if (ret != DW_DLV_NO_ENTRY) {
-            // Get language attribute data
+            /* Get language attribute data */
             ret = dwarf_formudata(language_attr, &language, &err);
             DWARF_ASSERT(ret, err);
             dwarf_dealloc(dbg, language_attr, DW_DLA_ATTR);
