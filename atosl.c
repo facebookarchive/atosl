@@ -131,9 +131,6 @@ static struct {
     /* Symbols from symtab */
     struct symbol_t *symlist;
     uint32_t nsymbols;
-    /* Functions from LC_FUNCTION_STARTS */
-    struct function_t *funclist;
-    uint32_t nfuncs;
     struct dwarf_subprogram_t *subprograms;
 
     Dwarf_Addr intended_addr;
@@ -480,77 +477,11 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     return 0;
 }
 
-int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
-                          uint32_t cmdsize)
+static int compare_symbols(const void *a, const void *b)
 {
-    int ret;
-    struct linkedit_data_command_t linkedit;
-    uint32_t *linkedit_data;
-    off_t orig_pos;
-    off_t pos;
-    Dwarf_Small *encoded_data;
-    Dwarf_Word addr;
-    Dwarf_Word offset;
-    struct function_t *func;
-
-    ret = _read(obj->handle, &linkedit, sizeof(linkedit));
-    if (ret < 0)
-        fatal_file(ret);
-
-    if (debug) {
-        fprintf(stderr, "LC_FUNCTION_STARTS\n");
-        fprintf(stderr, "%10s %.08x\n", "dataoff", linkedit.dataoff);
-        fprintf(stderr, "%10s %d\n", "datasize", linkedit.datasize);
-    }
-
-    linkedit_data = malloc(linkedit.datasize);
-    if (!linkedit_data)
-        fatal("unable to allocate memory");
-
-    orig_pos = lseek(obj->handle, 0, SEEK_CUR);
-    if (orig_pos < 0)
-        fatal("error seeking: %s", strerror(errno));
-
-    /* TODO: will the linkedit section always be defined before the
-     * function_starts command? */
-    if (!context.linkedit_addr)
-        fatal("fixme: linkedit address specified after function section.");
-
-    pos = context.arch.offset + linkedit.dataoff;
-    ret = lseek(obj->handle, pos, SEEK_SET);
-    if (ret < 0)
-        fatal("error seeking: %s", strerror(errno));
-
-    ret = _read(obj->handle, linkedit_data, linkedit.datasize);
-    if (ret < 0)
-        fatal_file(ret);
-
-    encoded_data = (Dwarf_Small *)linkedit_data;
-    context.nfuncs = 0;
-    do {
-        DECODE_LEB128_UWORD(encoded_data, offset);
-        context.nfuncs++;
-    } while (offset != 0);
-
-    context.funclist = func = malloc(sizeof(*func) * context.nfuncs);
-    if (!func)
-        fatal("unable to allocate memory");
-
-    encoded_data = (Dwarf_Small *)linkedit_data;
-    addr = context.intended_addr;
-    do {
-        DECODE_LEB128_UWORD(encoded_data, offset);
-        addr += offset;
-
-        func->addr = addr;
-        func++;
-    } while (offset != 0);
-
-    ret = lseek(obj->handle, orig_pos, SEEK_SET);
-    if (ret < 0)
-        fatal("error seeking: %s", strerror(errno));
-
-    return 0;
+    struct symbol_t *sym_a = (struct symbol_t *)a;
+    struct symbol_t *sym_b = (struct symbol_t *)b;
+    return sym_a->addr - sym_b->addr;
 }
 
 int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
@@ -560,12 +491,9 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
         struct nlist_64 nlist64;
     } nlist;
     struct symbol_t *current;
-    struct function_t *func;
-    char *demangled = NULL;
     int found = 0;
 
     int i;
-    int j;
 
     addr = addr - slide;
     current = context.symlist;
@@ -609,10 +537,11 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
         current++;
     }
 
-    func = context.funclist;
+    qsort(context.symlist, context.nsymbols, sizeof(*current), compare_symbols);
+    current = context.symlist;
 
-    for (i = 0; i < context.nfuncs; i++) {
-        if (addr < func->addr) {
+    for (i = 0; i < context.nsymbols; i++) {
+        if (current->addr > addr) {
             if (i < 1) {
                 /* Someone is asking about a symbol that comes before the first
                  * one we know about. In that case we don't have a match for
@@ -620,25 +549,10 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
                 break;
             }
 
-            struct function_t *prev = (func - 1);
-            struct symbol_t *sym = NULL;
-            int found_sym = 0;
-            const char *name;
-            assert(i < context.nsymbols);
+            struct symbol_t *prev = (current - 1);
 
-            for (j = 0; j < context.nsymbols; j++) {
-                sym = context.symlist + j;
-                if (sym->addr == (prev->addr & -2)) {
-                    found_sym = 1;
-                    break;
-                }
-            }
-
-            if (!found_sym)
-                fatal("unable to find symbol at address %llx", sym->addr);
-
-            demangled = demangle(sym->name);
-            name = demangled ? demangled : sym->name;
+            char *demangled = demangle(prev->name);
+            const char *name = demangled ? demangled : prev->name;
 
             if (name[0] == '_')
                 name++;
@@ -647,15 +561,14 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
                     name,
                     demangled ? "()" : "",
                     basename((char *)options.dsym_filename),
-                    (unsigned int)(addr - sym->addr));
+                    (unsigned int)(addr - prev->addr));
             found = 1;
 
             if (demangled)
                 free(demangled);
             break;
         }
-
-        func++;
+        current++;
     }
 
     return found ? DW_DLV_OK : DW_DLV_NO_ENTRY;
@@ -680,9 +593,6 @@ int parse_command(
             break;
         case LC_SYMTAB:
             ret = parse_symtab(obj, load_command.cmdsize);
-            break;
-        case LC_FUNCTION_STARTS:
-            ret = parse_function_starts(obj, load_command.cmdsize);
             break;
         default:
             if (debug)
