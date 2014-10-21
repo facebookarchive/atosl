@@ -661,6 +661,10 @@ static int dwarf_mach_object_access_internals_init(
             if (debug)
                 fprintf(stderr, "File type: dynamic library\n");
             break;
+        case MH_DYLIB_STUB:
+            if (debug)
+                fprintf(stderr, "File type: dynamic library stub\n");
+            break;
         case MH_EXECUTE:
             if (debug)
                 fprintf(stderr, "File type: executable file\n");
