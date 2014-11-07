@@ -60,7 +60,7 @@ static struct option longopts[] = {
     {"verbose", no_argument, NULL, 'v'},
     {"load-address", required_argument, NULL, 'l'},
     {"dsym", required_argument, NULL, 'o'},
-    {"arch", optional_argument, NULL, 'A'},
+    {"arch", required_argument, NULL, 'A'},
     {"globals", no_argument, NULL, 'g'},
     {"no-cache", no_argument, NULL, 'c'},
     {"cache-dir", required_argument, NULL, 'C'},
