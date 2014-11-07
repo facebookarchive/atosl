@@ -28,7 +28,7 @@ ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go)"
 #### Install Dependencies
 
 ```sh
-brew install binutils
+brew install https://raw.githubusercontent.com/Homebrew/homebrew/7059399/Library/Formula/binutils.rb
 brew install https://gist.github.com/zlandau/7550479/raw/f72753f6a59f6a3fadf9a2e2952a9f6846c15a8d/libdwarf.rb
 ```
 
