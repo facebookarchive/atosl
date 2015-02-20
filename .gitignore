@@ -1,0 +1,6 @@
+*.dep
+*.o
+config.mk.local
+test/fixtures/*
+atosl
+Guardfile

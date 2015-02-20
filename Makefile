@@ -33,6 +33,9 @@ dist: clean
 	gzip ${DIST}.tar
 	rm -rf ${DIST}
 
+test: all
+	rake
+
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin
 	cp -f atosl ${DESTDIR}${PREFIX}/bin

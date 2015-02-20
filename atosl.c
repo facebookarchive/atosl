@@ -197,6 +197,13 @@ char *demangle(const char *sym)
     return demangled;
 }
 
+static int compare_symbols(const void *a, const void *b)
+{
+    struct symbol_t *sym_a = (struct symbol_t *)a;
+    struct symbol_t *sym_b = (struct symbol_t *)b;
+    return sym_a->addr - sym_b->addr;
+}
+
 int parse_uuid(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
 {
     int i;
@@ -300,7 +307,7 @@ int parse_section_64(dwarf_mach_object_access_internals_t *obj)
     }
 
     struct dwarf_section_64_t *sec = obj->sections_64;
-    
+
     if (!sec) {
         obj->sections_64 = s;
     } else {
@@ -414,6 +421,10 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     int i;
     char *strtable;
 
+    union {
+        struct nlist_t nlist32;
+        struct nlist_64 nlist64;
+    } nlist;
     struct symtab_command_t symtab;
     struct symbol_t *current;
 
@@ -453,6 +464,7 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     context.symlist = malloc(sizeof(struct symbol_t) * symtab.nsyms);
     if (!context.symlist)
         fatal("unable to allocate memory");
+
     current = context.symlist;
 
     for (i = 0; i < symtab.nsyms; i++) {
@@ -470,32 +482,6 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
         current++;
     }
 
-    ret = lseek(obj->handle, pos, SEEK_SET);
-    if (ret < 0)
-        fatal("error seeking: %s", strerror(errno));
-
-    return 0;
-}
-
-static int compare_symbols(const void *a, const void *b)
-{
-    struct symbol_t *sym_a = (struct symbol_t *)a;
-    struct symbol_t *sym_b = (struct symbol_t *)b;
-    return sym_a->addr - sym_b->addr;
-}
-
-int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
-{
-    union {
-        struct nlist_t nlist32;
-        struct nlist_64 nlist64;
-    } nlist;
-    struct symbol_t *current;
-    int found = 0;
-
-    int i;
-
-    addr = addr - slide;
     current = context.symlist;
 
     for (i = 0; i < context.nsymbols; i++) {
@@ -537,7 +523,26 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
         current++;
     }
 
-    qsort(context.symlist, context.nsymbols, sizeof(*current), compare_symbols);
+    /* Use a stable sort to preserve existing orders of symbols with the same address
+     *  Unity3D has symbols with the same address where we the first one is generally the better one
+     *  FIXME: We rely on the fact, that GNU uses mergesort to implement qsort */
+    #ifdef __APPLE__
+      mergesort(context.symlist, context.nsymbols, sizeof(*current), compare_symbols);
+    #else
+      qsort(context.symlist, context.nsymbols, sizeof(*current), compare_symbols);
+    #endif
+
+    ret = lseek(obj->handle, pos, SEEK_SET);
+    if (ret < 0)
+        fatal("error seeking: %s", strerror(errno));
+
+    return 0;
+}
+
+struct symbol_t *find_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr) {
+    struct symbol_t *current;
+    int i;
+    addr = addr - slide;
     current = context.symlist;
 
     for (i = 0; i < context.nsymbols; i++) {
@@ -549,29 +554,66 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
                 break;
             }
 
-            struct symbol_t *prev = (current - 1);
+            struct symbol_t *prev;
 
-            char *demangled = demangle(prev->name);
-            const char *name = demangled ? demangled : prev->name;
+            /* Unity3D applications contain _m_<integer> symbols with the same address
+             *  as the method name
+             *  FIXME: Change code to support more than 2 symbols with the same address */
+            if((current - 2)->addr == (current - 1)->addr) {
+                return (current - 2);
+            }
+            else {
+                return (current - 1);
+            }
 
-            if (name[0] == '_')
-                name++;
-
-            printf("%s%s (in %s) + %d\n",
-                    name,
-                    demangled ? "()" : "",
-                    basename((char *)options.dsym_filename),
-                    (unsigned int)(addr - prev->addr));
-            found = 1;
-
-            if (demangled)
-                free(demangled);
-            break;
+            return prev;
         }
         current++;
     }
 
-    return found ? DW_DLV_OK : DW_DLV_NO_ENTRY;
+    return NULL;
+}
+
+int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr) {
+    struct symbol_t *symbol = find_symtab_symbol(slide, addr);
+    if(symbol){
+        char *demangled = demangle(symbol->name);
+        const char *name = demangled ? demangled : symbol->name;
+
+        if (name[0] == '_')
+            name++;
+
+        printf("%s%s (in %s) + %d\n",
+                name,
+                demangled ? "()" : "",
+                basename((char *)options.dsym_filename),
+                (unsigned int)(addr - symbol->addr));
+
+        if (demangled){
+            free(demangled);
+        }
+        return DW_DLV_OK;
+    }
+    else {
+        return DW_DLV_NO_ENTRY;
+    }
+
+}
+
+char* get_name_from_symbol_table(Dwarf_Addr slide, Dwarf_Addr addr) {
+    struct symbol_t *symbol = find_symtab_symbol(slide, addr);
+    if(symbol){
+        const char *name = symbol->name;
+
+        if (name[0] == '_')
+        {
+            name++;
+        }
+        return (char *) name;
+    }
+    else {
+       return  "UNKNOWN";
+    }
 }
 
 int parse_command(
@@ -633,7 +675,7 @@ static int dwarf_mach_object_access_internals_init(
     ret = _read(obj->handle, &header, sizeof(header));
     if (ret < 0)
         fatal_file(ret);
-    
+
     /* Need to skip 4 bytes of the reserved field of mach_header_64  */
     if (header.cputype == CPU_TYPE_ARM64 && header.cpusubtype == CPU_SUBTYPE_ARM64_ALL) {
         context.is_64 = 1;
@@ -721,7 +763,7 @@ static int dwarf_mach_object_access_get_section_info(
         *error = DW_DLE_MDE;
         return DW_DLV_ERROR;
     }
-    
+
     if (obj->sections_64) {
         struct dwarf_section_64_t *sec = obj->sections_64;
         for (i = 0; i < section_index; i++) {
@@ -797,7 +839,7 @@ static int dwarf_mach_object_access_load_section(
         ret = _read(obj->handle, addr, sec->mach_section.size);
         if (ret < 0)
             fatal_file(ret);
-        
+
     }
     *section_data = addr;
 
@@ -890,8 +932,8 @@ const char *lookup_symbol_name(Dwarf_Addr addr)
 
         subprogram = subprogram->next;
     }
+    return "unknown";
 
-    return "(unknown)";
 }
 
 int print_subprogram_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
@@ -918,9 +960,11 @@ int print_subprogram_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
     }
 
     if (match) {
-        demangled = demangle(match->name);
+        /* somehow get the symbol name from the symbol table */
+        char *name_from_symbol_table = get_name_from_symbol_table(slide, addr + slide);
+        demangled = demangle(name_from_symbol_table);
         printf("%s (in %s) + %d\n",
-               demangled ?: match->name,
+               demangled ? demangled : name_from_symbol_table,
                basename((char *)options.dsym_filename),
                (unsigned int)(addr - match->lowpc));
         if (demangled)
@@ -1027,7 +1071,7 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
             ret = dwarf_diename(cu_die, &diename, &err);
             DWARF_ASSERT(ret, err);
 
-            symbol = lookup_symbol_name(addr);
+            symbol = get_name_from_symbol_table(slide, slide + addr);
             demangled = demangle(symbol);
 
             printf("%s (in %s) (%s:%d)\n",
