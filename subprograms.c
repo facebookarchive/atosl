@@ -131,10 +131,10 @@ char* get_die_name(Dwarf_Debug dbg, Dwarf_Die the_die) {
     int rc;
     Dwarf_Half attr;
     int ares;
-    
+    int i;
     dwarf_attrlist(the_die, &atlist, &atcnt, &err);
     
-    for (int i = 0; i < atcnt && result_name == NULL; i++) {
+    for (i = 0; i < atcnt && result_name == NULL; i++) {
         
         ares = dwarf_whatattr(atlist[i], &attr, &err);
         if (ares == DW_DLV_OK) {
