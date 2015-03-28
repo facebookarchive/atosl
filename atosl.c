@@ -39,7 +39,7 @@
     } while (0);
 
 extern char *
-cplus_demangle (const char *mangled, int options);
+cplus_demangle_v3 (const char *mangled, int options);
 
 typedef unsigned long Dwarf_Word;
 
@@ -102,6 +102,7 @@ static struct {
     int use_globals;
     int use_cache;
     const char *dsym_filename;
+    const char *dsym_fileBaseName;
     cpu_type_t cpu_type;
     cpu_subtype_t cpu_subtype;
     const char *cache_dir;
@@ -190,9 +191,9 @@ char *demangle(const char *sym)
     if (debug)
         fprintf(stderr, "Unmangled name: %s\n", sym);
     if (strncmp(sym, "_Z", 2) == 0)
-        demangled = cplus_demangle(sym, 0);
+        demangled = cplus_demangle_v3(sym, 1 << 0);
     else if (strncmp(sym, "__Z", 3) == 0)
-        demangled = cplus_demangle(sym+1, 0);
+        demangled = cplus_demangle_v3(sym+1, 1 << 0);
 
     return demangled;
 }
@@ -1032,7 +1033,7 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
 
             printf("%s (in %s) (%s:%d)\n",
                    demangled ? demangled : symbol,
-                   basename((char *)options.dsym_filename),
+                   options.dsym_fileBaseName,
                    basename(filename), (int)lineno);
 
             found = 1;
@@ -1055,7 +1056,7 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
 
 int main(int argc, char *argv[]) {
     int fd;
-    int ret;
+    ssize_t ret;
     int i;
     Dwarf_Debug dbg = NULL;
     Dwarf_Error err;
@@ -1084,6 +1085,7 @@ int main(int argc, char *argv[]) {
                 break;
             case 'o':
                 options.dsym_filename = optarg;
+                options.dsym_fileBaseName = strdup(basename(optarg));
                 break;
             case 'A':
                 for (i = 0; i < NUMOF(arch_str_to_type); i++) {
@@ -1229,6 +1231,12 @@ int main(int argc, char *argv[]) {
             if (ret != DW_DLV_OK) {
                 derr = print_subprogram_symbol(
                          options.load_address - context.intended_addr, addr);
+            }
+            
+            if (ret != DW_DLV_OK) {
+                ret = print_symtab_symbol(
+                                          options.load_address - context.intended_addr,
+                                          addr);
             }
 
             if ((ret != DW_DLV_OK) && derr) {

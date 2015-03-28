@@ -123,6 +123,57 @@ static char* get_function_name_with_params(char *die_name, Dwarf_Die the_die, Dw
     return symbol_name;
 }
 
+char* get_die_name(Dwarf_Debug dbg, Dwarf_Die the_die) {
+    char* result_name = NULL;
+    Dwarf_Attribute *atlist = 0;
+    Dwarf_Signed atcnt = 0;
+    Dwarf_Error err;
+    
+    dwarf_attrlist(the_die, &atlist, &atcnt, &err);
+    
+    int rc;
+    
+    for (int i = 0; i < atcnt && result_name == NULL; i++) {
+        Dwarf_Half attr;
+        int ares;
+        
+        ares = dwarf_whatattr(atlist[i], &attr, &err);
+        if (ares == DW_DLV_OK) {
+            switch (attr) {
+                case DW_AT_specification:
+                case DW_AT_abstract_origin:
+                case DW_AT_type: {
+                    
+                    Dwarf_Off ref_off = 0;
+                    Dwarf_Die ref_die = 0;
+                    Dwarf_Bool is_info ;
+                    is_info = dwarf_get_die_infotypes_flag(the_die);
+                    int res = dwarf_global_formref(atlist[i], &ref_off, &err);
+                    
+                    res = dwarf_offdie_b(dbg,ref_off,is_info,&ref_die,&err);
+                    
+                    result_name = get_die_name(dbg, ref_die);
+                    
+                }
+                    break;
+                case DW_AT_name:
+                case DW_AT_MIPS_linkage_name: {
+                    char* filename = NULL;
+                    
+                    rc = dwarf_formstring(atlist[i], &filename, &err);
+                    DWARF_ASSERT(rc, err);
+                    
+                    if (filename) {
+                        result_name = filename;
+                    }
+                }
+            }
+        }
+        dwarf_dealloc(dbg, atlist[i], DW_DLA_ATTR);
+    }
+    dwarf_dealloc(dbg, atlist, DW_DLA_LIST);
+    return result_name;
+}
 
 /* This method walks the compilation units to find the symbols. It's faster
  * than caching the globals, but it requires a little more manual work and
@@ -153,11 +204,9 @@ static struct dwarf_subprogram_t *read_cu_entry(
     /* Only interested in subprogram DIEs here */
     if (tag != DW_TAG_subprogram)
         return subprograms;
-
-    rc = dwarf_diename(the_die, &die_name, &err);
-    if (rc == DW_DLV_ERROR)
-        fatal("unable to parse dwarf diename");
-
+    
+    die_name = get_die_name(dbg, the_die);
+    
     if (rc == DW_DLV_NO_ENTRY)
         return subprograms;
 
@@ -278,7 +327,7 @@ static struct dwarf_subprogram_t *read_from_cus(Dwarf_Debug dbg)
         /* Expect the CU DIE to have children */
         ret = dwarf_child(cu_die, &child_die, &err);
         DWARF_ASSERT(ret, err);
-
+        
         handle_die(&subprograms, dbg, cu_die, child_die, language);  
 
         dwarf_dealloc(dbg, cu_die, DW_DLA_DIE);
