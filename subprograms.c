@@ -128,14 +128,13 @@ char* get_die_name(Dwarf_Debug dbg, Dwarf_Die the_die) {
     Dwarf_Attribute *atlist = 0;
     Dwarf_Signed atcnt = 0;
     Dwarf_Error err;
+    int rc;
+    Dwarf_Half attr;
+    int ares;
     
     dwarf_attrlist(the_die, &atlist, &atcnt, &err);
     
-    int rc;
-    
     for (int i = 0; i < atcnt && result_name == NULL; i++) {
-        Dwarf_Half attr;
-        int ares;
         
         ares = dwarf_whatattr(atlist[i], &attr, &err);
         if (ares == DW_DLV_OK) {
@@ -148,23 +147,23 @@ char* get_die_name(Dwarf_Debug dbg, Dwarf_Die the_die) {
                     Dwarf_Die ref_die = 0;
                     Dwarf_Bool is_info ;
                     is_info = dwarf_get_die_infotypes_flag(the_die);
-                    int res = dwarf_global_formref(atlist[i], &ref_off, &err);
-                    
-                    res = dwarf_offdie_b(dbg,ref_off,is_info,&ref_die,&err);
-                    
+                    rc = dwarf_global_formref(atlist[i], &ref_off, &err);
+                    DWARF_ASSERT(rc, err);
+                    rc = dwarf_offdie_b(dbg,ref_off,is_info,&ref_die,&err);
+                    DWARF_ASSERT(rc, err);
                     result_name = get_die_name(dbg, ref_die);
                     
                 }
                     break;
                 case DW_AT_name:
                 case DW_AT_MIPS_linkage_name: {
-                    char* filename = NULL;
+                    char* name = NULL;
                     
-                    rc = dwarf_formstring(atlist[i], &filename, &err);
+                    rc = dwarf_formstring(atlist[i], &name, &err);
                     DWARF_ASSERT(rc, err);
                     
-                    if (filename) {
-                        result_name = filename;
+                    if (name) {
+                        result_name = name;
                     }
                 }
             }
