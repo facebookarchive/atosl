@@ -55,10 +55,11 @@ _dwarf_decode_u_leb128(Dwarf_Small * leb128,
 
 static int debug = 0;
 
-static const char *shortopts = "vl:o:A:gcC:Vh";
+static const char *shortopts = "vl:o:A:gcC:VhD";
 static struct option longopts[] = {
     {"verbose", no_argument, NULL, 'v'},
     {"load-address", required_argument, NULL, 'l'},
+    {"no-demangle", no_argument, NULL, 'D'},
     {"dsym", required_argument, NULL, 'o'},
     {"arch", required_argument, NULL, 'A'},
     {"globals", no_argument, NULL, 'g'},
@@ -105,12 +106,14 @@ static struct {
     cpu_type_t cpu_type;
     cpu_subtype_t cpu_subtype;
     const char *cache_dir;
+    int should_demangle;
 } options = {
     .load_address = LONG_MAX,
     .use_globals = 0,
     .use_cache = 1,
     .cpu_type = CPU_TYPE_ARM,
     .cpu_subtype = CPU_SUBTYPE_ARM_V7S,
+    .should_demangle = 1,
 };
 
 typedef int dwarf_mach_handle;
@@ -171,6 +174,8 @@ void print_help(void)
             "  -g, --globals\t\t\tlookup symbols using global section\n");
     fprintf(stderr,
             "  -c, --no-cache\t\tdon't cache debugging information\n");
+    fprintf(stderr,
+            "  -D, --no-demangle\t\tdon't demangle symbols\n");
     fprintf(stderr,
             "  -V, --version\t\t\tget current version\n");
     fprintf(stderr,
@@ -551,7 +556,7 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 
             struct symbol_t *prev = (current - 1);
 
-            char *demangled = demangle(prev->name);
+            char *demangled = options.should_demangle ? demangle(prev->name) : NULL;
             const char *name = demangled ? demangled : prev->name;
 
             if (name[0] == '_')
@@ -918,7 +923,7 @@ int print_subprogram_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
     }
 
     if (match) {
-        demangled = demangle(match->name);
+        demangled = options.should_demangle ? demangle(match->name) : NULL;
         printf("%s (in %s) + %d\n",
                demangled ?: match->name,
                basename((char *)options.dsym_filename),
@@ -1028,7 +1033,7 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
             DWARF_ASSERT(ret, err);
 
             symbol = lookup_symbol_name(addr);
-            demangled = demangle(symbol);
+            demangled = options.should_demangle ? demangle(symbol) : NULL;
 
             printf("%s (in %s) (%s:%d)\n",
                    demangled ? demangled : symbol,
@@ -1109,6 +1114,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'C':
                 options.cache_dir = optarg;
+                break;
+            case 'D':
+                options.should_demangle = 0;
                 break;
             case 'V':
                 fprintf(stderr, "atosl %s\n", VERSION);
