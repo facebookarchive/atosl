@@ -888,7 +888,7 @@ struct dwarf_subprogram_t *lookup_symbol(Dwarf_Addr addr)
 
     while (subprogram) {
         if ((addr >= subprogram->lowpc) &&
-            (addr <= subprogram->highpc)) {
+            (addr < subprogram->highpc)) {
             return subprogram;
         }
 
