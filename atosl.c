@@ -489,6 +489,24 @@ static int compare_symbols(const void *a, const void *b)
     return sym_a->addr - sym_b->addr;
 }
 
+void do_print_symbol(const char *symbol, unsigned offset)
+{
+    char *demangled = options.should_demangle ? demangle(symbol) : NULL;
+    const char *name = demangled ? demangled : symbol;
+
+    if (name[0] == '_')
+        name++;
+
+    printf("%s%s (in %s) + %d\n",
+            name,
+            demangled ? "()" : "",
+            basename((char *)options.dsym_filename),
+            offset);
+
+    if (demangled)
+        free(demangled);
+}
+
 int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 {
     union {
@@ -555,22 +573,8 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             }
 
             struct symbol_t *prev = (current - 1);
-
-            char *demangled = options.should_demangle ? demangle(prev->name) : NULL;
-            const char *name = demangled ? demangled : prev->name;
-
-            if (name[0] == '_')
-                name++;
-
-            printf("%s%s (in %s) + %d\n",
-                    name,
-                    demangled ? "()" : "",
-                    basename((char *)options.dsym_filename),
-                    (unsigned int)(addr - prev->addr));
+            do_print_symbol(prev->name, (unsigned int)(addr - prev->addr));
             found = 1;
-
-            if (demangled)
-                free(demangled);
             break;
         }
         current++;
