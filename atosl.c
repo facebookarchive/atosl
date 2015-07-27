@@ -517,6 +517,10 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
     int found = 0;
 
     int i;
+    int is_stab;
+    const char *last_fun_name = NULL;
+    Dwarf_Addr last_addr;
+    uint8_t type;
 
     addr = addr - slide;
     current = context.symlist;
@@ -527,12 +531,14 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
         current->thumb = ((context.is_64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc) & N_ARM_THUMB_DEF) ? 1 : 0;
 
         current->addr = context.is_64 ? nlist.nlist64.n_value : nlist.nlist32.n_value;
+        type = context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type;
+        is_stab = type & N_STAB;
         if (debug) {
             fprintf(stderr, "\t\tname: %s\n", current->name);
             fprintf(stderr, "\t\tn_un.n_un.n_strx: %d\n", context.is_64 ? nlist.nlist64.n_un.n_strx : nlist.nlist32.n_un.n_strx);
             fprintf(stderr, "\t\traw n_type: 0x%x\n", context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type);
             fprintf(stderr, "\t\tn_type: ");
-            if ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_STAB)
+            if (is_stab)
                 fprintf(stderr, "N_STAB ");
             if ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_PEXT)
                 fprintf(stderr, "N_PEXT ");
@@ -541,7 +547,7 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             fprintf(stderr, "\n");
 
             fprintf(stderr, "\t\tType: ");
-            switch ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_TYPE) {
+            switch (type & N_TYPE) {
                 case 0: fprintf(stderr, "U "); break;
                 case N_ABS: fprintf(stderr, "A "); break;
                 case N_SECT: fprintf(stderr, "S "); break;
@@ -554,10 +560,40 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             fprintf(stderr, "\t\tn_desc: %d\n", context.is_64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc);
             fprintf(stderr, "\t\tn_value: 0x%llx\n", (unsigned long long)(context.is_64 ? nlist.nlist64.n_value : nlist.nlist32.n_value));
             fprintf(stderr, "\t\taddr: 0x%llx\n", current->addr);
-            fprintf(stderr, "\n");
         }
 
+        if (is_stab && type == N_FUN) {
+            if (last_fun_name) {
+                if (debug)
+                    fprintf(stderr, "\t\tSecond consecutive N_FUN symbol. Function size: %llu (0x%llx)\n",
+                            current->addr, current->addr);
+                if (last_addr <= addr
+                        && addr < last_addr + current->addr) {
+                    do_print_symbol(last_fun_name, (unsigned int)(addr - last_addr));
+                    return DW_DLV_OK;
+                } else if (debug)
+                    fprintf(stderr, "\t\tNot printing symbol %s; 0x%llx not in the interval [0x%llx 0x%llx).\n",
+                            last_fun_name, addr, last_addr, last_addr + current->addr);
+                last_fun_name = NULL;
+            } else {
+                last_fun_name = current->name;
+                if (debug)
+                    fprintf(stderr, "\t\tFirst consecutive N_FUN symbol. Function name: %s; addr: 0x%llx\n",
+                            current->name, current->addr);
+            }
+        } else {
+            if (debug && last_fun_name) {
+                fprintf(stderr, "%s", "\t\tN_FUN symbol not part of a pair! Ignoring.\n");
+                fprintf(stderr, "Name: %s, addr: 0x%llx (%llu)\n", last_fun_name, last_addr, last_addr);
+            }
+            last_fun_name = NULL;
+        }
+        last_addr = current->addr;
+
         current++;
+
+        if (debug)
+            fprintf(stderr, "\n");
     }
 
     qsort(context.symlist, context.nsymbols, sizeof(*current), compare_symbols);

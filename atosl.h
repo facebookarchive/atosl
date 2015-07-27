@@ -40,6 +40,8 @@
 #define N_PBUD 0xc
 #define N_INDR 0xa
 
+#define N_FUN 0x24
+
 #define CPU_TYPE_ARM ((cpu_type_t)12)
 #define CPU_SUBTYPE_ARM_V6 ((cpu_subtype_t)6)
 #define CPU_SUBTYPE_ARM_V7 ((cpu_subtype_t)9)
