@@ -562,6 +562,17 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             fprintf(stderr, "\t\taddr: 0x%llx\n", current->addr);
         }
 
+        /* Print function names based on stab information.
+         *
+         * See README.stabs for stabs format information.
+         *
+         * Here we find pairs of N_FUN stabs. The first has the name of the function and its starting address;
+         * the second has its size.
+         *
+         * We could also symbolicate global and static symbols (N_GSYM and N_STSYM) here,
+         * but it's not necessary to do so since they'll be picked up by the generic symbol table
+         * search later in this function.
+         */
         if (is_stab && type == N_FUN) {
             if (last_fun_name) {
                 if (debug)
