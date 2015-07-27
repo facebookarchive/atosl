@@ -489,7 +489,7 @@ static int compare_symbols(const void *a, const void *b)
     return sym_a->addr - sym_b->addr;
 }
 
-void do_print_symbol(const char *symbol, unsigned offset)
+void print_symbol(const char *symbol, unsigned offset)
 {
     char *demangled = options.should_demangle ? demangle(symbol) : NULL;
     const char *name = demangled ? demangled : symbol;
@@ -534,7 +534,7 @@ int handle_stabs_symbol(int is_fun_stab, Dwarf_Addr search_addr, const struct sy
                         symbol->addr, symbol->addr);
             if (last_addr <= search_addr
                     && search_addr < last_addr + symbol->addr) {
-                do_print_symbol(last_fun_name, (unsigned int)(search_addr - last_addr));
+                print_symbol(last_fun_name, (unsigned int)(search_addr - last_addr));
                 return 1;
             } else if (debug)
                 fprintf(stderr, "\t\tNot printing symbol %s; 0x%llx not in the interval [0x%llx 0x%llx).\n",
@@ -557,7 +557,7 @@ int handle_stabs_symbol(int is_fun_stab, Dwarf_Addr search_addr, const struct sy
     return 0;
 }
 
-int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
+int find_and_print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 {
     union {
         struct nlist_t nlist32;
@@ -632,7 +632,7 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             }
 
             struct symbol_t *prev = (current - 1);
-            do_print_symbol(prev->name, (unsigned int)(addr - prev->addr));
+            print_symbol(prev->name, (unsigned int)(addr - prev->addr));
             found = 1;
             break;
         }
@@ -1318,7 +1318,7 @@ int main(int argc, char *argv[]) {
             addr = strtol(argv[i], (char **)NULL, 16);
             if (errno != 0)
                 fatal("invalid address address: `%s': %s", optarg, strerror(errno));
-            ret = print_symtab_symbol(
+            ret = find_and_print_symtab_symbol(
                     options.load_address - context.intended_addr,
                     addr);
 
