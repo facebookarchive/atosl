@@ -507,6 +507,56 @@ void do_print_symbol(const char *symbol, unsigned offset)
         free(demangled);
 }
 
+/* Print symbol name based on stabs information.
+ * Currently only handles functions (N_FUN stabs)
+ *
+ * See README.stabs for stabs format information.
+ *
+ * Here we find pairs of N_FUN stabs. The first has the name of the function and its starting address;
+ * the second has its size.
+ *
+ * We could also symbolicate global and static symbols (N_GSYM and N_STSYM) here,
+ * but it's not necessary to do so since they'll be picked up by the generic symbol table
+ * search later in this function.
+ *
+ * Return 1 if a symbol corresponding to search_addr was found; 0 otherwise.
+ */
+int handle_stabs_symbol(int is_fun_stab, Dwarf_Addr search_addr, const struct symbol_t *symbol)
+{
+    /* These are static since they need to persist across pairs of symbols. */
+    static const char *last_fun_name = NULL;
+    static Dwarf_Addr last_addr;
+
+    if (is_fun_stab) {  
+        if (last_fun_name) { /* if this is non-null, the last symbol was an N_FUN stab as well. */
+            if (debug)
+                fprintf(stderr, "\t\tSecond consecutive N_FUN symbol. Function size: %llu (0x%llx)\n",
+                        symbol->addr, symbol->addr);
+            if (last_addr <= search_addr
+                    && search_addr < last_addr + symbol->addr) {
+                do_print_symbol(last_fun_name, (unsigned int)(search_addr - last_addr));
+                return 1;
+            } else if (debug)
+                fprintf(stderr, "\t\tNot printing symbol %s; 0x%llx not in the interval [0x%llx 0x%llx).\n",
+                        last_fun_name, search_addr, last_addr, last_addr + symbol->addr);
+            last_fun_name = NULL;
+        } else { /* last_fun_name is null, so this is the first N_FUN in (possibly) a pair. */
+            last_fun_name = symbol->name;
+            if (debug)
+                fprintf(stderr, "\t\tFirst consecutive N_FUN symbol. Function name: %s; addr: 0x%llx\n",
+                        symbol->name, symbol->addr);
+        }
+    } else {
+        if (debug && last_fun_name) {
+            fprintf(stderr, "%s", "\t\tN_FUN symbol not part of a pair! Ignoring.\n");
+            fprintf(stderr, "Name: %s, addr: 0x%llx (%llu)\n", last_fun_name, last_addr, last_addr);
+        }
+        last_fun_name = NULL;
+    }
+    last_addr = symbol->addr;
+    return 0;
+}
+
 int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 {
     union {
@@ -518,8 +568,6 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 
     int i;
     int is_stab;
-    const char *last_fun_name = NULL;
-    Dwarf_Addr last_addr;
     uint8_t type;
 
     addr = addr - slide;
@@ -562,44 +610,8 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             fprintf(stderr, "\t\taddr: 0x%llx\n", current->addr);
         }
 
-        /* Print function names based on stab information.
-         *
-         * See README.stabs for stabs format information.
-         *
-         * Here we find pairs of N_FUN stabs. The first has the name of the function and its starting address;
-         * the second has its size.
-         *
-         * We could also symbolicate global and static symbols (N_GSYM and N_STSYM) here,
-         * but it's not necessary to do so since they'll be picked up by the generic symbol table
-         * search later in this function.
-         */
-        if (is_stab && type == N_FUN) {
-            if (last_fun_name) {
-                if (debug)
-                    fprintf(stderr, "\t\tSecond consecutive N_FUN symbol. Function size: %llu (0x%llx)\n",
-                            current->addr, current->addr);
-                if (last_addr <= addr
-                        && addr < last_addr + current->addr) {
-                    do_print_symbol(last_fun_name, (unsigned int)(addr - last_addr));
-                    return DW_DLV_OK;
-                } else if (debug)
-                    fprintf(stderr, "\t\tNot printing symbol %s; 0x%llx not in the interval [0x%llx 0x%llx).\n",
-                            last_fun_name, addr, last_addr, last_addr + current->addr);
-                last_fun_name = NULL;
-            } else {
-                last_fun_name = current->name;
-                if (debug)
-                    fprintf(stderr, "\t\tFirst consecutive N_FUN symbol. Function name: %s; addr: 0x%llx\n",
-                            current->name, current->addr);
-            }
-        } else {
-            if (debug && last_fun_name) {
-                fprintf(stderr, "%s", "\t\tN_FUN symbol not part of a pair! Ignoring.\n");
-                fprintf(stderr, "Name: %s, addr: 0x%llx (%llu)\n", last_fun_name, last_addr, last_addr);
-            }
-            last_fun_name = NULL;
-        }
-        last_addr = current->addr;
+        if (handle_stabs_symbol(is_stab && type == N_FUN, addr, current))
+            return DW_DLV_OK;
 
         current++;
 
