@@ -489,7 +489,75 @@ static int compare_symbols(const void *a, const void *b)
     return sym_a->addr - sym_b->addr;
 }
 
-int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
+void print_symbol(const char *symbol, unsigned offset)
+{
+    char *demangled = options.should_demangle ? demangle(symbol) : NULL;
+    const char *name = demangled ? demangled : symbol;
+
+    if (name[0] == '_')
+        name++;
+
+    printf("%s%s (in %s) + %d\n",
+            name,
+            demangled ? "()" : "",
+            basename((char *)options.dsym_filename),
+            offset);
+
+    if (demangled)
+        free(demangled);
+}
+
+/* Print symbol name based on stabs information.
+ * Currently only handles functions (N_FUN stabs)
+ *
+ * See README.stabs for stabs format information.
+ *
+ * Here we find pairs of N_FUN stabs. The first has the name of the function and its starting address;
+ * the second has its size.
+ *
+ * We could also symbolicate global and static symbols (N_GSYM and N_STSYM) here,
+ * but it's not necessary to do so since they'll be picked up by the generic symbol table
+ * search later in this function.
+ *
+ * Return 1 if a symbol corresponding to search_addr was found; 0 otherwise.
+ */
+int handle_stabs_symbol(int is_fun_stab, Dwarf_Addr search_addr, const struct symbol_t *symbol)
+{
+    /* These are static since they need to persist across pairs of symbols. */
+    static const char *last_fun_name = NULL;
+    static Dwarf_Addr last_addr;
+
+    if (is_fun_stab) {  
+        if (last_fun_name) { /* if this is non-null, the last symbol was an N_FUN stab as well. */
+            if (debug)
+                fprintf(stderr, "\t\tSecond consecutive N_FUN symbol. Function size: %llu (0x%llx)\n",
+                        symbol->addr, symbol->addr);
+            if (last_addr <= search_addr
+                    && search_addr < last_addr + symbol->addr) {
+                print_symbol(last_fun_name, (unsigned int)(search_addr - last_addr));
+                return 1;
+            } else if (debug)
+                fprintf(stderr, "\t\tNot printing symbol %s; 0x%llx not in the interval [0x%llx 0x%llx).\n",
+                        last_fun_name, search_addr, last_addr, last_addr + symbol->addr);
+            last_fun_name = NULL;
+        } else { /* last_fun_name is null, so this is the first N_FUN in (possibly) a pair. */
+            last_fun_name = symbol->name;
+            if (debug)
+                fprintf(stderr, "\t\tFirst consecutive N_FUN symbol. Function name: %s; addr: 0x%llx\n",
+                        symbol->name, symbol->addr);
+        }
+    } else {
+        if (debug && last_fun_name) {
+            fprintf(stderr, "%s", "\t\tN_FUN symbol not part of a pair! Ignoring.\n");
+            fprintf(stderr, "Name: %s, addr: 0x%llx (%llu)\n", last_fun_name, last_addr, last_addr);
+        }
+        last_fun_name = NULL;
+    }
+    last_addr = symbol->addr;
+    return 0;
+}
+
+int find_and_print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 {
     union {
         struct nlist_t nlist32;
@@ -499,6 +567,8 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
     int found = 0;
 
     int i;
+    int is_stab;
+    uint8_t type;
 
     addr = addr - slide;
     current = context.symlist;
@@ -509,12 +579,14 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
         current->thumb = ((context.is_64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc) & N_ARM_THUMB_DEF) ? 1 : 0;
 
         current->addr = context.is_64 ? nlist.nlist64.n_value : nlist.nlist32.n_value;
+        type = context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type;
+        is_stab = type & N_STAB;
         if (debug) {
             fprintf(stderr, "\t\tname: %s\n", current->name);
             fprintf(stderr, "\t\tn_un.n_un.n_strx: %d\n", context.is_64 ? nlist.nlist64.n_un.n_strx : nlist.nlist32.n_un.n_strx);
             fprintf(stderr, "\t\traw n_type: 0x%x\n", context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type);
             fprintf(stderr, "\t\tn_type: ");
-            if ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_STAB)
+            if (is_stab)
                 fprintf(stderr, "N_STAB ");
             if ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_PEXT)
                 fprintf(stderr, "N_PEXT ");
@@ -523,7 +595,7 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             fprintf(stderr, "\n");
 
             fprintf(stderr, "\t\tType: ");
-            switch ((context.is_64 ? nlist.nlist64.n_type : nlist.nlist32.n_type) & N_TYPE) {
+            switch (type & N_TYPE) {
                 case 0: fprintf(stderr, "U "); break;
                 case N_ABS: fprintf(stderr, "A "); break;
                 case N_SECT: fprintf(stderr, "S "); break;
@@ -536,10 +608,15 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             fprintf(stderr, "\t\tn_desc: %d\n", context.is_64 ? nlist.nlist64.n_desc : nlist.nlist32.n_desc);
             fprintf(stderr, "\t\tn_value: 0x%llx\n", (unsigned long long)(context.is_64 ? nlist.nlist64.n_value : nlist.nlist32.n_value));
             fprintf(stderr, "\t\taddr: 0x%llx\n", current->addr);
-            fprintf(stderr, "\n");
         }
 
+        if (handle_stabs_symbol(is_stab && type == N_FUN, addr, current))
+            return DW_DLV_OK;
+
         current++;
+
+        if (debug)
+            fprintf(stderr, "\n");
     }
 
     qsort(context.symlist, context.nsymbols, sizeof(*current), compare_symbols);
@@ -555,22 +632,8 @@ int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
             }
 
             struct symbol_t *prev = (current - 1);
-
-            char *demangled = options.should_demangle ? demangle(prev->name) : NULL;
-            const char *name = demangled ? demangled : prev->name;
-
-            if (name[0] == '_')
-                name++;
-
-            printf("%s%s (in %s) + %d\n",
-                    name,
-                    demangled ? "()" : "",
-                    basename((char *)options.dsym_filename),
-                    (unsigned int)(addr - prev->addr));
+            print_symbol(prev->name, (unsigned int)(addr - prev->addr));
             found = 1;
-
-            if (demangled)
-                free(demangled);
             break;
         }
         current++;
@@ -1255,7 +1318,7 @@ int main(int argc, char *argv[]) {
             addr = strtol(argv[i], (char **)NULL, 16);
             if (errno != 0)
                 fatal("invalid address address: `%s': %s", optarg, strerror(errno));
-            ret = print_symtab_symbol(
+            ret = find_and_print_symtab_symbol(
                     options.load_address - context.intended_addr,
                     addr);
 

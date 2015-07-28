@@ -1,0 +1,26 @@
+This file describes the sequence of stabs as produced by clang, as far as I've seen in test files.
+This is a tiny subset of the full stabs format, which is described in detail at:
+	https://sourceware.org/gdb/current/onlinedocs/stabs.html
+
+The sequence of stabs as produced by clang is:
+
+Per translation unit:
+  * An N_SO symbol with the source directory name (e.g. /Users/btv/MyApp/)
+  * An N_SO symbol with the source file basename (e.g. AppDelegate.m)
+  * An N_OSO symbol with the full path to the object file (e.g.
+    /Users/btv/MyApp/build/MyApp.build/Debug-iphoneos/MyApp.build/Objects-normal/armv7/AppDelegate.o )
+    Note that this can be a temp file with a useless name if intermediate object files weren't generated
+    during the build process.
+  * The functions defined in that translation unit, each with the following four symbols:
+    * N_BNSYM, whose value is the beginning address of the function
+    * N_FUN, whose string is the (possibly mangled) function name and whose value is the same as for N_BNSYM.
+    * (Note: Sometimes N_SOL can appear here, but it doesn't seem to have anything to do with the function.)
+    * N_FUN (again), whose string is blank and whose value is the length of the function.
+    * N_ENSYM, whose string is blank and whose value is (again) the length of the function.
+  * Some N_GSYM and N_STSYM symbols. These describe global and static variables, respectively.
+    Their value is the address of the symbol; and their string is a mangled version of their name
+    (e.g. OBJC_CLASS_$_DetailViewController)
+
+A word on N_SOL: It describes header files included in the current translation unit.
+The pattern to when and where it shows up is mysterious. Sometimes it precedes all the functions defined in
+the header file, but not always.
