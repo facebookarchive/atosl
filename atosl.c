@@ -167,7 +167,7 @@ void print_help(void)
     fprintf(stderr,
             "  -v, --verbose\t\t\tenable verbose (debug) messages\n");
     fprintf(stderr,
-            "  -l, --load_address=ADDRESS\tspecify application load address\n");
+            "  -l, --load-address=ADDRESS\tspecify application load address\n");
     fprintf(stderr,
             "  -A, --arch=ARCH\t\tspecify architecture\n");
     fprintf(stderr,
