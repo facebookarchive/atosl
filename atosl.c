@@ -945,45 +945,29 @@ void dwarf_mach_object_access_finish(Dwarf_Obj_Access_Interface *obj)
     free(obj);
 }
 
-const char *lookup_symbol_name(Dwarf_Addr addr)
+struct dwarf_subprogram_t *lookup_symbol(Dwarf_Addr addr)
 {
     struct dwarf_subprogram_t *subprogram = context.subprograms;
 
     while (subprogram) {
         if ((addr >= subprogram->lowpc) &&
-            (addr <= subprogram->highpc)) {
-            return subprogram->name;
-            break;
+            (addr < subprogram->highpc)) {
+            return subprogram;
         }
 
         subprogram = subprogram->next;
     }
 
-    return "(unknown)";
+    return NULL;
 }
 
 int print_subprogram_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
 {
-    struct dwarf_subprogram_t *subprogram = context.subprograms;
-    struct dwarf_subprogram_t *prev = NULL;
-    struct dwarf_subprogram_t *match = NULL;
     char *demangled = NULL;
 
     addr -= slide;
 
-    /* Address is before our first symbol */
-    if (addr < subprogram->lowpc)
-        return -1;
-
-    while (subprogram) {
-        if (prev && (addr < subprogram->lowpc)) {
-            match = prev;
-            break;
-        }
-
-        prev = subprogram;
-        subprogram = subprogram->next;
-    }
+    struct dwarf_subprogram_t *match = lookup_symbol(addr);
 
     if (match) {
         demangled = options.should_demangle ? demangle(match->name) : NULL;
@@ -1083,8 +1067,9 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
             char *filename;
             Dwarf_Unsigned lineno;
             char *diename;
-            const char *symbol;
             char *demangled;
+            struct dwarf_subprogram_t *symbol;
+            const char *name;
 
             ret = dwarf_linesrc(line, &filename, &err);
             DWARF_ASSERT(ret, err);
@@ -1095,11 +1080,14 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
             ret = dwarf_diename(cu_die, &diename, &err);
             DWARF_ASSERT(ret, err);
 
-            symbol = lookup_symbol_name(addr);
-            demangled = options.should_demangle ? demangle(symbol) : NULL;
+            symbol = lookup_symbol(addr);
+
+            name = symbol ? symbol->name : "(unknown)";
+
+            demangled = options.should_demangle ? demangle(name) : NULL;
 
             printf("%s (in %s) (%s:%d)\n",
-                   demangled ? demangled : symbol,
+                   demangled ? demangled : name,
                    basename((char *)options.dsym_filename),
                    basename(filename), (int)lineno);
 
