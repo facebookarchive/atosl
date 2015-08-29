@@ -13,7 +13,7 @@ libdwarf is available for.
 
 ## Requirements
 
-[libdwarf](https://aur.archlinux.org/packages/libdwarf/) - This library
+[libdwarf](http://www.prevanders.net/dwarf.html) - This library
 does the heavily lifting of parsing the DWARF debugging data within the
 binaries.
 
