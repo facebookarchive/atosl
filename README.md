@@ -1,3 +1,9 @@
+- - -
+
+**_This project is not actively maintained. Proceed at your own risk!_**
+
+- - -
+
 # atosl
 
 __atosl__ is a partial replacement for Apple's atos tool for converting
