@@ -1,0 +1,4 @@
+atosl
+*.o
+*.dep
+tags
