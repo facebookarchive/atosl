@@ -1,0 +1,3 @@
+[submodule "libdwarf"]
+	path = libdwarf
+	url = https://github.com/tomhughes/libdwarf
