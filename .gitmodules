@@ -1,0 +1,4 @@
+
+[submodule "libdwarf"]
+	path = libdwarf
+	url = git://git.code.sf.net/p/libdwarf/code
