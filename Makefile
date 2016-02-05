@@ -10,7 +10,7 @@ DEPS := ${SRCS:.c=.dep}
 
 DIST := ${TARGET}-${VERSION}
 
-.PHONY: all clean distclean dist install uninstall
+.PHONY: all clean distclean dist install uninstall libdwarf
 
 all:: libdwarf
 	make atosl
