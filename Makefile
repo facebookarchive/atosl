@@ -28,6 +28,8 @@ ${DEPS}: %.dep: %.c Makefile
 
 clean:
 	    -rm -f *~ *.o *.dep ${TARGET} ${DIST}.tar.gz
+	    cd atosl && make clean
+	    cd libdwarf && make clean
 
 dist: clean
 	mkdir -p ${DIST}
@@ -37,7 +39,7 @@ dist: clean
 	rm -rf ${DIST}
 
 libdwarf:
-	cd atosl/libdwarf && ./configure && make basic
+	cd libdwarf && ./configure && make basic
 
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin

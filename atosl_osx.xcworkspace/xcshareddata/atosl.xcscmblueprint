@@ -1,0 +1,30 @@
+{
+  "DVTSourceControlWorkspaceBlueprintPrimaryRemoteRepositoryKey" : "9909914629C0A051D06FC8C385E18F5C5597FB13",
+  "DVTSourceControlWorkspaceBlueprintWorkingCopyRepositoryLocationsKey" : {
+
+  },
+  "DVTSourceControlWorkspaceBlueprintWorkingCopyStatesKey" : {
+    "9909914629C0A051D06FC8C385E18F5C5597FB13" : 0,
+    "EC129394A0DBAD2839F9A2161B552AEFA12B0836" : 0
+  },
+  "DVTSourceControlWorkspaceBlueprintIdentifierKey" : "B2F684C4-DC28-4C07-BAE8-40596B01A3DD",
+  "DVTSourceControlWorkspaceBlueprintWorkingCopyPathsKey" : {
+    "9909914629C0A051D06FC8C385E18F5C5597FB13" : "atosl\/",
+    "EC129394A0DBAD2839F9A2161B552AEFA12B0836" : "atosl\/atosl\/libdwarf\/"
+  },
+  "DVTSourceControlWorkspaceBlueprintNameKey" : "atosl",
+  "DVTSourceControlWorkspaceBlueprintVersion" : 204,
+  "DVTSourceControlWorkspaceBlueprintRelativePathToProjectKey" : "atosl.xcworkspace",
+  "DVTSourceControlWorkspaceBlueprintRemoteRepositoriesKey" : [
+    {
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryURLKey" : "https:\/\/github.com\/crittercism\/atosl.git",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositorySystemKey" : "com.apple.dt.Xcode.sourcecontrol.Git",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryIdentifierKey" : "9909914629C0A051D06FC8C385E18F5C5597FB13"
+    },
+    {
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryURLKey" : "git:\/\/git.code.sf.net\/p\/libdwarf\/code",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositorySystemKey" : "com.apple.dt.Xcode.sourcecontrol.Git",
+      "DVTSourceControlWorkspaceBlueprintRemoteRepositoryIdentifierKey" : "EC129394A0DBAD2839F9A2161B552AEFA12B0836"
+    }
+  ]
+}

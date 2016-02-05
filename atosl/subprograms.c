@@ -260,7 +260,7 @@ static struct dwarf_subprogram_t *read_from_cus(Dwarf_Debug dbg)
 
         /* Expect the CU to have a single sibling - a DIE */
         ret = dwarf_siblingof(dbg, no_die, &cu_die, &err);
-        if (ret == DW_DLV_ERROR) {
+        if ((ret == DW_DLV_ERROR) || (ret == DW_DLV_NO_ENTRY)) {
             continue;
         }
         DWARF_ASSERT(ret, err);
