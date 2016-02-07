@@ -48,6 +48,7 @@
 		6D78BBF91C64602900D419A2 = {
 			isa = PBXGroup;
 			children = (
+				6D78BC1C1C66C7F300D419A2 /* libdwarf */,
 				6D78BC041C64602900D419A2 /* atosl_osx */,
 				6D78BC031C64602900D419A2 /* Products */,
 			);
@@ -72,6 +73,21 @@
 				6D78BC111C64605E00D419A2 /* subprograms.h */,
 			);
 			path = atosl_osx;
+			sourceTree = "<group>";
+		};
+		6D78BC1C1C66C7F300D419A2 /* libdwarf */ = {
+			isa = PBXGroup;
+			children = (
+				6D78BC1D1C66C80400D419A2 /* libdwarf */,
+			);
+			name = libdwarf;
+			sourceTree = "<group>";
+		};
+		6D78BC1D1C66C80400D419A2 /* libdwarf */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = libdwarf;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -178,6 +194,7 @@
 				HEADER_SEARCH_PATHS = (
 					/usr/include,
 					/usr/local/include,
+					./libdwarf/libdwarf,
 				);
 				"HEADER_SEARCH_PATHS[arch=*]" = (
 					/usr/include,
@@ -186,6 +203,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					/usr/lib,
 					/usr/local/lib,
+					./libdwarf/libdwarf,
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.10;
 				MTL_ENABLE_DEBUG_INFO = YES;
@@ -227,10 +245,12 @@
 				HEADER_SEARCH_PATHS = (
 					/usr/include,
 					/usr/local/include,
+					./libdwarf/libdwarf,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					/usr/lib,
 					/usr/local/lib,
+					./libdwarf/libdwarf,
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.10;
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -287,6 +307,7 @@
 				6D78BC0B1C64602900D419A2 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

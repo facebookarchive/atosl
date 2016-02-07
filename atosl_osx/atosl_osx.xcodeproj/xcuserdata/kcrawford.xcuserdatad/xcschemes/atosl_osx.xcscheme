@@ -61,6 +61,12 @@
             ReferencedContainer = "container:atosl_osx.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "-o /users/kcrawford/tmp/vons/vons.dSYM -A armv7 --no-cache --load-address 0xb3000 0x001dd487"
+            isEnabled = "YES">
+         </CommandLineArgument>
+      </CommandLineArguments>
       <AdditionalOptions>
       </AdditionalOptions>
    </LaunchAction>
