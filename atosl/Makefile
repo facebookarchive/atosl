@@ -1,21 +1,18 @@
 include config.mk
 
-SRCS := atosl/atosl.c atosl/subprograms.c atosl/common.c
-HDRS := atosl/atosl.h atosl/subprograms.h atosl/common.h
+SRCS := atosl.c subprograms.c common.c
+HDRS := atosl.h subprograms.h common.h
 
-TARGET := atosl/atosl
+TARGET := atosl
 
 OBJS := ${SRCS:.c=.o}
 DEPS := ${SRCS:.c=.dep}
 
 DIST := ${TARGET}-${VERSION}
 
-.PHONY: all clean distclean dist install uninstall libdwarf
+.PHONY: all clean distclean dist install uninstall
 
-all:: libdwarf
-	make atosl
-
-atosl: ${TARGET}
+all:: ${TARGET}
 
 ${TARGET}: ${OBJS}
 	    ${CC} -o $@ $^ ${LDFLAGS}
@@ -28,8 +25,6 @@ ${DEPS}: %.dep: %.c Makefile
 
 clean:
 	    -rm -f *~ *.o *.dep ${TARGET} ${DIST}.tar.gz
-	    cd atosl && make clean
-	    cd libdwarf && make clean
 
 dist: clean
 	mkdir -p ${DIST}
@@ -37,9 +32,6 @@ dist: clean
 	tar -cf ${DIST}.tar ${DIST}
 	gzip ${DIST}.tar
 	rm -rf ${DIST}
-
-libdwarf:
-	cd libdwarf && ./configure && make basic
 
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin

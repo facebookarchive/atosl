@@ -223,7 +223,7 @@ static void handle_die(
 
         rc = dwarf_siblingof(dbg, current_die, &next_die, &err);
         DWARF_ASSERT(rc, err);
-
+        
         dwarf_dealloc(dbg, current_die, DW_DLA_DIE);
 
         current_die = next_die;
@@ -241,14 +241,27 @@ static struct dwarf_subprogram_t *read_from_cus(Dwarf_Debug dbg)
     Dwarf_Unsigned language = 0;
     Dwarf_Attribute language_attr = 0;
 
+    Dwarf_Bool is_info = 1;
+    Dwarf_Half offset_size;
+    Dwarf_Half extension_size;
+    Dwarf_Sig8 signature;
+    Dwarf_Unsigned typeoffset;
+    Dwarf_Half header_cu_type;
+    
     while (ret == DW_DLV_OK) {
-        ret = dwarf_next_cu_header(
+        ret = dwarf_next_cu_header_d(
                 dbg,
+                is_info,
                 &cu_header_length,
                 &version_stamp,
                 &abbrev_offset,
                 &address_size,
+                &offset_size,
+                &extension_size,
+                &signature,
+                &typeoffset,
                 &next_cu_header,
+                &header_cu_type,
                 &err);
         DWARF_ASSERT(ret, err);
 
@@ -260,7 +273,7 @@ static struct dwarf_subprogram_t *read_from_cus(Dwarf_Debug dbg)
 
         /* Expect the CU to have a single sibling - a DIE */
         ret = dwarf_siblingof(dbg, no_die, &cu_die, &err);
-        if (ret == DW_DLV_ERROR) {
+        if ((ret == DW_DLV_ERROR) || (ret == DW_DLV_NO_ENTRY)) {
             continue;
         }
         DWARF_ASSERT(ret, err);

@@ -983,10 +983,9 @@ int print_subprogram_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
     return match ? 0 : -1;
 }
 
-int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
+int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Arange * arange_buf, Dwarf_Signed count, Dwarf_Addr slide, Dwarf_Addr addr)
 {
-    static Dwarf_Arange *arange_buf = NULL;
-    Dwarf_Line *linebuf = NULL;
+    Dwarf_Line * linebuf = NULL;
     Dwarf_Signed linecount = 0;
     Dwarf_Off cu_die_offset = 0;
     Dwarf_Die cu_die = NULL;
@@ -994,19 +993,13 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
     Dwarf_Unsigned segment_entry_size = 0;
     Dwarf_Addr start = 0;
     Dwarf_Unsigned length = 0;
-    Dwarf_Arange arange;
-    static Dwarf_Signed count;
-    int ret;
+    Dwarf_Arange arange = NULL;
     Dwarf_Error err;
-    int i;
+    int ret = 0;
+    int i = 0;
     int found = 0;
 
     addr -= slide;
-
-    if (!arange_buf) {
-        ret = dwarf_get_aranges(dbg, &arange_buf, &count, &err);
-        DWARF_ASSERT(ret, err);
-    }
 
     ret = dwarf_get_arange(arange_buf, count, addr, &arange, &err);
     DWARF_ASSERT(ret, err);
@@ -1030,6 +1023,8 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
     /* ret = dwarf_print_lines(cu_die, &err, &errcnt); */
     /* DWARF_ASSERT(ret, err); */
 
+    // TODO: Change this to dwarf_srclines_b
+    // TODO: Handle DW_DLV_NO_ENTRY case
     ret = dwarf_srclines(cu_die, &linebuf, &linecount, &err);
     DWARF_ASSERT(ret, err);
 
@@ -1086,6 +1081,8 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
 
             demangled = options.should_demangle ? demangle(name) : NULL;
 
+            // TODO: BUG: basename() has an internal static,
+            // so second string is printed twice
             printf("%s (in %s) (%s:%d)\n",
                    demangled ? demangled : name,
                    basename((char *)options.dsym_filename),
@@ -1102,8 +1099,7 @@ int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
             break;
         }
     }
-
-    dwarf_dealloc(dbg, arange, DW_DLA_ARANGE);
+    
     dwarf_srclines_dealloc(dbg, linebuf, linecount);
 
     return found ? DW_DLV_OK : DW_DLV_NO_ENTRY;
@@ -1125,6 +1121,8 @@ int main(int argc, char *argv[]) {
     cpu_type_t cpu_type = -1;
     cpu_subtype_t cpu_subtype = -1;
     Dwarf_Addr address;
+    Dwarf_Arange * arange_buf = NULL;
+    Dwarf_Signed count = 0;
 
     memset(&context, 0, sizeof(context));
 
@@ -1276,6 +1274,9 @@ int main(int argc, char *argv[]) {
                                                    SUBPROGRAMS_CUS,
                              &opts);
 
+        ret = dwarf_get_aranges(dbg, &arange_buf, &count, &err);
+        DWARF_ASSERT(ret, err);
+
         for (i = optind; i < argc; i++) {
             Dwarf_Addr addr;
             errno = 0;
@@ -1283,8 +1284,10 @@ int main(int argc, char *argv[]) {
             if (errno != 0)
                 fatal("invalid address: `%s': %s", argv[i], strerror(errno));
             ret = print_dwarf_symbol(dbg,
-                                 options.load_address - context.intended_addr,
-                                 addr);
+                                     arange_buf,
+                                     count,
+                                     options.load_address - context.intended_addr,
+                                     addr);
             if (ret != DW_DLV_OK) {
                 derr = print_subprogram_symbol(
                          options.load_address - context.intended_addr, addr);
@@ -1295,6 +1298,8 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        dwarf_dealloc(dbg, arange_buf, DW_DLA_LIST);
+        
         dwarf_mach_object_access_finish(binary_interface);
 
         ret = dwarf_object_finish(dbg, &err);
